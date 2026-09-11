@@ -11,7 +11,7 @@ from typing import Protocol
 
 import numpy as np
 
-from .config import configure_dds_interface
+from .config import configure_dds_interface, unitree_sdk2py_root
 from .grasps import hardware_to_logical, logical_to_hardware
 
 BODY_MOTOR_COUNT = 35
@@ -68,6 +68,9 @@ class UnitreeRobotBackend:
     def connect(self) -> None:
         configure_dds_interface()
         sys.path.insert(0, str(self.xr_root))
+        sdk_root = unitree_sdk2py_root()
+        if sdk_root is not None:
+            sys.path.insert(0, str(sdk_root))
         from teleop.utils.motion_switcher import MotionSwitcher
         from unitree_sdk2py.core.channel import (
             ChannelFactoryInitialize,

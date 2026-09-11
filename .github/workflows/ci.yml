@@ -9,9 +9,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: mamba-org/setup-micromamba@v2
         with:
-          python-version: "3.12"
-      - run: python -m pip install -e ".[test]"
-      - run: python -m unittest discover -s tests -v
-      - run: python -m compileall -q classic_control
+          environment-file: environment.yml
+          cache-environment: true
+      - shell: bash -el {0}
+        run: python -m unittest discover -s tests -v
+      - shell: bash -el {0}
+        run: ruff check classic_control tests
+      - shell: bash -el {0}
+        run: python -m compileall -q classic_control

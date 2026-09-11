@@ -4,21 +4,37 @@ Local browser-based Cartesian control for a Unitree G1 with two Dex3 hands. It p
 
 This project directly commands physical hardware. Support the robot, clear its workspace, keep its physical E-stop reachable, and ensure no other process publishes to `rt/lowcmd` or either Dex3 command topic.
 
-## Requirements
+## Conda environment
 
-- Python 3.10 or newer
-- Unitree `unitree_sdk2py`, CycloneDDS, Pinocchio, and their native runtime dependencies
-- A compatible `xr_teleoperate` checkout
-- A G1-29 with Dex3 state topics available
+Use Conda for this project. Pinocchio and the rest of the compiled robotics stack must come from the same Conda environment; do not build this environment with pip or uv.
 
-The vendor stack is deliberately not declared as a portable PyPI dependency. Install this project inside the working robot environment:
+To create a standalone environment:
 
 ```bash
-python -m pip install -e .
+conda env create -f environment.yml
+conda activate classic-control
+
 export XR_TELEOPERATE_ROOT=/path/to/xr_teleoperate
-export ROBOT_NETWORK_INTERFACE=enP2p1s0  # optional if CycloneDDS is already configured
-classic-control
+export UNITREE_SDK2PY_ROOT=/path/to/unitree_sdk2_python
+export ROBOT_NETWORK_INTERFACE=enP2p1s0
+
+python -m classic_control.web
 ```
+
+`unitree_sdk2py` is loaded directly from its source checkout because it is not available from conda-forge. If it is already installed in the active Conda environment, `UNITREE_SDK2PY_ROOT` may be omitted.
+
+To reuse the existing `g1-cartesian` environment instead, install only the missing UI packages through Conda:
+
+```bash
+conda activate g1-cartesian
+conda install -c conda-forge fastapi uvicorn pyyaml
+
+export XR_TELEOPERATE_ROOT=/path/to/xr_teleoperate
+export ROBOT_NETWORK_INTERFACE=enP2p1s0
+python -m classic_control.web
+```
+
+Run these commands from the repository root; the project itself does not need to be installed with pip.
 
 Open <http://127.0.0.1:8000>. The server intentionally binds only to localhost and always connects to real hardware.
 
@@ -50,7 +66,7 @@ The package is split by responsibility:
 - `service.py` serializes commands and implements deadman, hold, release, and fault behavior.
 - `web.py` and `static/` implement the local API and interface.
 
-Run the hardware-free suite with:
+Run the hardware-free suite from the activated Conda environment with:
 
 ```bash
 python -m unittest discover -s tests -v

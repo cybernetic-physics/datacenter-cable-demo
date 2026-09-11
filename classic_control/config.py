@@ -28,6 +28,16 @@ def grasp_file() -> Path:
     return Path(__file__).resolve().parent.parent / "config" / "grasps.yaml"
 
 
+def unitree_sdk2py_root() -> Path | None:
+    value = os.environ.get("UNITREE_SDK2PY_ROOT")
+    if not value:
+        return None
+    root = Path(value).expanduser().resolve()
+    if not (root / "unitree_sdk2py/__init__.py").is_file():
+        raise RuntimeError(f"UNITREE_SDK2PY_ROOT is not a compatible checkout: {root}")
+    return root
+
+
 def configure_dds_interface() -> None:
     interface = os.environ.get("ROBOT_NETWORK_INTERFACE")
     if interface and "CYCLONEDDS_URI" not in os.environ:

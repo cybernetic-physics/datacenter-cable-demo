@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "classic-control"
+version = "0.1.0"
+description = "Browser-based Cartesian control and Dex3 teleoperation for Unitree G1"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi>=0.110,<1",
+  "numpy>=1.24,<3",
+  "PyYAML>=6,<7",
+  "uvicorn>=0.27,<1",
+]
+
+[project.optional-dependencies]
+test = ["httpx>=0.27,<1"]
+
+[project.scripts]
+classic-control = "classic_control.web:main"
+
+[tool.setuptools.packages.find]
+include = ["classic_control*"]
+
+[tool.setuptools.package-data]
+classic_control = ["static/*.html", "static/*.css", "static/*.js"]
+
+[tool.ruff.lint]
+# These are deliberate process/thread boundaries: unexpected SDK failures must
+# become UI-visible faults instead of killing the controller silently.
+ignore = ["BLE001"]

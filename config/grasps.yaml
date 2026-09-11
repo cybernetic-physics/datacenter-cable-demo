@@ -1,0 +1,30 @@
+version: 1
+grasps:
+  open:
+    description: Fully open pose for both Dex3 hands.
+    left:
+      thumb_rotate: 0.0
+      thumb_1: 0.0
+      thumb_2: 0.0
+      index_0: 0.0
+      index_1: 0.0
+      middle_0: 0.0
+      middle_1: 0.0
+    right:
+      thumb_rotate: 0.0
+      thumb_1: 0.0
+      thumb_2: 0.0
+      index_0: 0.0
+      index_1: 0.0
+      middle_0: 0.0
+      middle_1: 0.0
+  right-pinch:
+    description: Physically calibrated right-hand thumb-to-index pinch.
+    right:
+      thumb_rotate: -0.4
+      thumb_1: -0.4
+      thumb_2: -0.96
+      index_0: -0.04
+      index_1: 0.08
+      middle_0: 1.0
+      middle_1: 0.96

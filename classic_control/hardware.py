@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import threading
 import time
@@ -11,7 +12,7 @@ from typing import Protocol
 
 import numpy as np
 
-from .config import configure_dds_interface, unitree_sdk2py_root
+from .config import unitree_sdk2py_root
 from .grasps import hardware_to_logical, logical_to_hardware
 
 BODY_MOTOR_COUNT = 35
@@ -66,7 +67,6 @@ class UnitreeRobotBackend:
         self._publish_threads: list[threading.Thread] = []
 
     def connect(self) -> None:
-        configure_dds_interface()
         sys.path.insert(0, str(self.xr_root))
         sdk_root = unitree_sdk2py_root()
         if sdk_root is not None:
@@ -89,7 +89,7 @@ class UnitreeRobotBackend:
         )
         from unitree_sdk2py.utils.crc import CRC
 
-        ChannelFactoryInitialize(0)
+        ChannelFactoryInitialize(0, os.environ.get("ROBOT_NETWORK_INTERFACE"))
         self._ChannelPublisher = ChannelPublisher
         self._lowcmd_type = LowCmd_
         self._lowcmd_factory = unitree_hg_msg_dds__LowCmd_
@@ -105,7 +105,14 @@ class UnitreeRobotBackend:
             subscriber = ChannelSubscriber(f"rt/dex3/{side}/state", HandState_)
             subscriber.Init()
             self._hand_subs[side] = subscriber
-        threading.Thread(target=self._state_loop, name="robot-state", daemon=True).start()
+        threading.Thread(target=self._body_state_loop, name="body-state", daemon=True).start()
+        for side in ("left", "right"):
+            threading.Thread(
+                target=self._hand_state_loop,
+                args=(side,),
+                name=f"{side}-hand-state",
+                daemon=True,
+            ).start()
 
         deadline = time.monotonic() + self.state_timeout_s
         while time.monotonic() < deadline:
@@ -115,7 +122,7 @@ class UnitreeRobotBackend:
             time.sleep(0.01)
         raise RuntimeError("no finite rt/lowstate received")
 
-    def _state_loop(self) -> None:
+    def _body_state_loop(self) -> None:
         while not self._closed:
             message = self._lowstate_sub.Read()
             if message is not None:
@@ -126,15 +133,18 @@ class UnitreeRobotBackend:
                         self._body_q, self._body_dq = q, dq
                         self._mode_machine = message.mode_machine
                         self._body_updated = time.monotonic()
-            for side, subscriber in self._hand_subs.items():
-                hand = subscriber.Read()
-                if hand is not None:
-                    values = [float(hand.motor_state[index].q) for index in range(7)]
-                    if np.all(np.isfinite(values)):
-                        with self._lock:
-                            self._hands_raw[side] = values
-                            self._hands_updated[side] = time.monotonic()
-            time.sleep(0.002)
+
+    def _hand_state_loop(self, side: str) -> None:
+        subscriber = self._hand_subs[side]
+        while not self._closed:
+            message = subscriber.Read()
+            if message is None:
+                continue
+            values = [float(message.motor_state[index].q) for index in range(7)]
+            if np.all(np.isfinite(values)):
+                with self._lock:
+                    self._hands_raw[side] = values
+                    self._hands_updated[side] = time.monotonic()
 
     def state(self) -> RobotState:
         with self._lock:

@@ -36,13 +36,3 @@ def unitree_sdk2py_root() -> Path | None:
     if not (root / "unitree_sdk2py/__init__.py").is_file():
         raise RuntimeError(f"UNITREE_SDK2PY_ROOT is not a compatible checkout: {root}")
     return root
-
-
-def configure_dds_interface() -> None:
-    interface = os.environ.get("ROBOT_NETWORK_INTERFACE")
-    if interface and "CYCLONEDDS_URI" not in os.environ:
-        os.environ["CYCLONEDDS_URI"] = (
-            "<CycloneDDS><Domain><General><Interfaces>"
-            f'<NetworkInterface name="{interface}"/>'
-            "</Interfaces></General></Domain></CycloneDDS>"
-        )

@@ -150,8 +150,8 @@ def create_app(control: ControlService | None = None) -> FastAPI:
             while True:
                 payload = await socket.receive_json()
                 message_type = payload.get("type")
-                if message_type == "deadman":
-                    service.set_deadman(owner, bool(payload.get("active")))
+                if message_type == "stop":
+                    await asyncio.to_thread(service.stop_motion, owner)
                     continue
                 if message_type == "release":
                     await asyncio.to_thread(service.release_control, owner)

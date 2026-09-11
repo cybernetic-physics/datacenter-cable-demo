@@ -1,11 +1,9 @@
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 let socket;
-let deadman = false;
 let telemetry = null;
 let uiConfig = null;
 let grasps = {};
-let heartbeat;
 const handTouched = {left:false, right:false};
 
 function toast(message) {
@@ -18,18 +16,7 @@ function send(message) {
   socket.send(JSON.stringify(message));
 }
 
-function setDeadman(active) {
-  if (deadman === active) return;
-  deadman = active;
-  $("#deadman").classList.toggle("active", active);
-  $("#deadman").textContent = active ? "Deadman held — motion enabled" : "Hold SPACE for motion";
-  send({type:"deadman", active});
-  clearInterval(heartbeat);
-  if (active) heartbeat = setInterval(() => send({type:"deadman", active:true}), 100);
-  updateMotionButtons();
-}
-
-function updateMotionButtons() { $$(".motion").forEach(button => button.disabled = !deadman || !socket || socket.readyState !== WebSocket.OPEN); }
+function updateMotionButtons() { $$(".motion").forEach(button => button.disabled = !socket || socket.readyState !== WebSocket.OPEN); }
 function selectedArm() { return $("input[name=arm]:checked").value; }
 function n(value, digits=3) { return Number(value).toFixed(digits); }
 function poseText(pose) { return pose ? `XYZ  ${pose.xyz.map(v=>n(v)).join("  ")}\nRPY  ${pose.rpy_deg.map(v=>n(v,1)).join("  ")}` : "—"; }
@@ -39,8 +26,6 @@ function renderState(state) {
   $("#connection").textContent = state.connected ? "Robot connected" : "Disconnected";
   $("#connection").className = `pill ${state.connected ? "good" : "bad"}`;
   $("#mode").textContent = state.acquired ? "Debug control" : "Read only";
-  $("#deadmanStatus").textContent = state.deadman ? "Deadman held" : "Deadman released";
-  $("#deadmanStatus").className = `pill ${state.deadman ? "good" : ""}`;
   $("#activeCommand").textContent = state.active_command || "Idle";
   $("#fault").textContent = state.fault || ""; $("#fault").classList.toggle("hidden", !state.fault);
   if (state.arms) {
@@ -65,7 +50,7 @@ function connect() {
     if (message.type === "telemetry") renderState(message.state);
     if (message.type === "error") toast(message.message);
   };
-  socket.onclose = event => { setDeadman(false); updateMotionButtons(); toast(event.code === 4001 ? "Another browser owns control" : "Control connection closed"); };
+  socket.onclose = event => { updateMotionButtons(); toast(event.code === 4001 ? "Another browser owns control" : "Control connection closed"); };
 }
 
 function buildHand(side) {
@@ -103,11 +88,9 @@ async function initialize() {
     $("#jogStepLabel").textContent=rotation?"Step (°)":"Step (m)";
     input.value=rotation?"3":"0.01"; input.min=rotation?"0.1":"0.001"; input.max=rotation?"15":"0.05"; input.step=rotation?"0.1":"0.001";
   };
-  $("#deadman").addEventListener("pointerdown", () => setDeadman(true));
-  $("#deadman").addEventListener("pointerup", () => setDeadman(false));
-  $("#deadman").addEventListener("pointercancel", () => setDeadman(false));
   $("#normal").onclick = () => send({type:"normal", duration_s:20});
-  $("#release").onclick = () => { setDeadman(false); send({type:"release"}); };
+  $("#stop").onclick = () => send({type:"stop"});
+  $("#release").onclick = () => send({type:"release"});
   $$("[data-axis]").forEach(button => button.onclick = event => jog(Number(button.dataset.axis),Number(button.dataset.sign),event.shiftKey));
   $$("[data-apply-hand]").forEach(button => button.onclick = () => { const side=button.dataset.applyHand; send({type:"hand",targets:{[side]:staged(side)},duration_s:Number($("#handDuration").value)}); });
   $("#poseForm").onsubmit = event => { event.preventDefault(); const form=new FormData(event.target); send({type:"pose",side:selectedArm(),xyz:["x","y","z"].map(k=>Number(form.get(k))),rpy_deg:["roll","pitch","yaw"].map(k=>Number(form.get(k))),duration_s:Number(form.get("duration")),elbow:form.get("elbow")}); };
@@ -121,12 +104,9 @@ async function initialize() {
 }
 
 document.addEventListener("keydown", event => {
-  if (event.code === "Space" && !event.target.matches("input,select,textarea")) { event.preventDefault(); setDeadman(true); return; }
-  if (event.code === "Escape") { setDeadman(false); send({type:"release"}); return; }
-  if (event.repeat || event.target.matches("input,select,textarea") || !deadman) return;
+  if (event.code === "Escape") { send({type:"release"}); return; }
+  if (event.repeat || event.target.matches("input,select,textarea")) return;
   const keys={w:[0,1],s:[0,-1],a:[1,1],d:[1,-1],r:[2,1],f:[2,-1]}; const command=keys[event.key.toLowerCase()]; if(command){event.preventDefault();jog(command[0],command[1],event.shiftKey);}
 });
-document.addEventListener("keyup", event => { if(event.code === "Space") setDeadman(false); });
-window.addEventListener("blur", () => setDeadman(false));
-window.addEventListener("beforeunload", () => { setDeadman(false); socket?.close(); });
+window.addEventListener("beforeunload", () => socket?.close());
 initialize().catch(error => toast(error.message));

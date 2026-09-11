@@ -21,7 +21,6 @@ from .grasps import JOINT_NAMES, GraspStore, validate_hand
 from .hardware import RobotBackend
 from .models import ArmSide, ElbowBias, PoseTarget
 
-DEADMAN_TIMEOUT_S = 0.35
 NORMAL_SPEED_RAD_S = 0.08
 
 
@@ -34,8 +33,6 @@ class ControlService:
         self._planner_lock = threading.Lock()
         self._command_lock = threading.Lock()
         self._owner: str | None = None
-        self._deadman = False
-        self._heartbeat = 0.0
         self._motion_cancel = threading.Event()
         self._motion_thread: threading.Thread | None = None
         self._active_command: str | None = None
@@ -56,7 +53,6 @@ class ControlService:
             if self._owner not in (None, owner):
                 return False
             self._owner = owner
-            self._heartbeat = time.monotonic()
             return True
 
     def detach(self, owner: str) -> None:
@@ -70,22 +66,6 @@ class ControlService:
                 if self._owner == owner:
                     self._owner = None
 
-    def set_deadman(self, owner: str, active: bool) -> None:
-        self._require_owner(owner)
-        with self._lock:
-            self._heartbeat = time.monotonic()
-            self._deadman = bool(active)
-        if not active:
-            self._cancel_motion(wait=False)
-
-    def watchdog(self) -> None:
-        with self._lock:
-            expired = self._deadman and time.monotonic() - self._heartbeat > DEADMAN_TIMEOUT_S
-            if expired:
-                self._deadman = False
-        if expired:
-            self._cancel_motion(wait=False)
-
     def _require_owner(self, owner: str) -> None:
         with self._lock:
             if self._owner != owner:
@@ -94,8 +74,6 @@ class ControlService:
     def _require_motion_authority(self, owner: str) -> None:
         self._require_owner(owner)
         with self._lock:
-            if not self._deadman:
-                raise RuntimeError("hold the deadman control before requesting motion")
             if self._fault is not None:
                 raise RuntimeError(f"control is faulted: {self._fault}; release control before retrying")
 
@@ -165,7 +143,12 @@ class ControlService:
 
     def _authority_still_valid(self, owner: str) -> bool:
         with self._lock:
-            return self._owner == owner and self._deadman and self._fault is None
+            return self._owner == owner and self._fault is None
+
+    def stop_motion(self, owner: str) -> None:
+        """Cancel the active trajectory while holding its latest command."""
+        self._require_owner(owner)
+        self._cancel_motion(wait=True)
 
     def command_jog(self, owner: str, side: str, mode: str, axis: int,
                     delta: float, duration_s: float, elbow: str) -> None:
@@ -332,8 +315,6 @@ class ControlService:
 
     def release_control(self, owner: str) -> None:
         self._require_owner(owner)
-        with self._lock:
-            self._deadman = False
         self._cancel_motion(wait=True)
         try:
             self.backend.release()
@@ -352,7 +333,6 @@ class ControlService:
         }
 
     def telemetry(self) -> dict[str, object]:
-        self.watchdog()
         try:
             state = self.backend.state()
             arm_q = state.body_q[15:29]
@@ -372,7 +352,6 @@ class ControlService:
             return {
                 "connected": state is not None,
                 "owner": self._owner is not None,
-                "deadman": self._deadman,
                 "acquired": bool(state and state.acquired),
                 "active_command": self._active_command,
                 "fault": fault,

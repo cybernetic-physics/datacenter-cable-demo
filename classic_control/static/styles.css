@@ -15,7 +15,6 @@ button { cursor:pointer; } button:hover { border-color:#607086; } button:disable
 button.primary { color:#07120e; background:var(--accent); border-color:var(--accent); font-weight:750; }
 button.danger { margin-left:auto; background:var(--danger); color:#190202; border-color:var(--danger); font-weight:800; }
 button.danger-outline { color:var(--danger); border-color:#793d3e; }
-button.deadman.active { background:var(--warn); color:#171004; border-color:var(--warn); }
 kbd { font-size:11px; opacity:.65; }
 .fault { margin:14px auto 0; max-width:1280px; padding:12px 18px; color:#ffd5d4; background:#4d1c1c; border:1px solid #913b3b; border-radius:8px; }
 .hidden { display:none !important; } .muted { color:var(--muted); }

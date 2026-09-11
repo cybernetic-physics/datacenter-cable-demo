@@ -70,29 +70,24 @@ class ServiceTest(unittest.TestCase):
 
     def tearDown(self): self.service.close()
 
-    def test_motion_requires_deadman(self):
-        with self.assertRaisesRegex(RuntimeError, "deadman"):
-            self.service.command_jog("owner", "left", "translation", 0, 0.01, 0.1, "auto")
-        self.assertFalse(self.backend.acquired)
-
-    def test_jog_acquires_and_deadman_release_holds(self):
-        self.service.set_deadman("owner", True)
+    def test_jog_acquires_control(self):
         self.service.command_jog("owner", "left", "translation", 0, 0.01, 0.1, "auto")
         wait_idle(self.service)
         self.assertTrue(self.backend.acquired)
-        self.service.set_deadman("owner", False)
+
+    def test_stop_motion_holds_without_releasing_control(self):
+        self.service.command_jog("owner", "left", "translation", 0, 0.01, 0.1, "auto")
+        self.service.stop_motion("owner")
         self.assertTrue(self.backend.acquired)
 
     def test_normal_sets_waist_and_arms(self):
         self.backend.q[12:15] = (0.001, -0.001, 0.001)
-        self.service.set_deadman("owner", True)
         self.service.command_normal("owner", 0.05)
         wait_idle(self.service, 2)
         np.testing.assert_allclose(self.backend.body_targets[-1][0], NORMAL_ARM_Q)
         np.testing.assert_allclose(self.backend.body_targets[-1][1], np.zeros(3))
 
     def test_disconnect_releases_robot(self):
-        self.service.set_deadman("owner", True)
         self.service.command_hand("owner", {"right": OPEN}, 0)
         wait_idle(self.service)
         self.service.detach("owner")

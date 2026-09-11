@@ -42,11 +42,11 @@ Open <http://127.0.0.1:8000>. The server intentionally binds only to localhost a
 
 ## Controls and safety behavior
 
-- Hold **Space** while requesting motion. Jog keys are `W/S`, `A/D`, and `R/F`; Shift makes a jog three times larger.
-- Releasing Space cancels the active trajectory and continuously holds its most recent command.
+- Click a motion control or use the `W/S`, `A/D`, and `R/F` jog keys; Shift makes a jog three times larger. No key needs to be held.
+- **Stop motion** cancels the active trajectory and continuously holds its most recent command.
 - **Escape** or **Release robot control** cancels motion, stops this application's command publishers, and returns the G1 to AI mode. Losing the browser connection does the same.
 - **Normal pose** returns both arms to the conservative neutral pose and sets waist yaw, roll, and pitch to zero. It does not alter the measured leg targets.
-- Hand sliders stage values only. Holding Space and pressing Apply performs a bounded, interpolated move.
+- Hand sliders stage values only. Pressing Apply performs a bounded, interpolated move.
 - There are no confirmation phrases or confirmation dialogs.
 
 Only one browser may own the control WebSocket. IK failures, invalid feedback, limit violations, and command publisher failures are shown as faults and block motion until control is released.
@@ -63,7 +63,7 @@ The package is split by responsibility:
 
 - `arm.py` contains hardware-independent transforms plus the checked Unitree IK wrapper.
 - `hardware.py` is the only owner of DDS command publishers.
-- `service.py` serializes commands and implements deadman, hold, release, and fault behavior.
+- `service.py` serializes commands and implements stop/hold, release, and fault behavior.
 - `web.py` and `static/` implement the local API and interface.
 
 Run the hardware-free suite from the activated Conda environment with:

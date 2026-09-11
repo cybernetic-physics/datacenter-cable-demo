@@ -27,10 +27,10 @@ class StubControl:
         if self.owner is not None: return False
         self.owner = owner; return True
     def detach(self, owner): self.detached = True; self.owner = None
-    def set_deadman(self, owner, active): pass
+    def stop_motion(self, owner): pass
     def release_control(self, owner): pass
     def telemetry(self):
-        return {"connected": True, "owner": self.owner is not None, "deadman": False,
+        return {"connected": True, "owner": self.owner is not None,
                 "acquired": False, "active_command": None, "fault": None,
                 "arms": None, "hands": None}
 

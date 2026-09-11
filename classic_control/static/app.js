@@ -21,6 +21,30 @@ function selectedArm() { return $("input[name=arm]:checked").value; }
 function n(value, digits=3) { return Number(value).toFixed(digits); }
 function poseText(pose) { return pose ? `XYZ  ${pose.xyz.map(v=>n(v)).join("  ")}\nRPY  ${pose.rpy_deg.map(v=>n(v,1)).join("  ")}` : "—"; }
 
+function setCameraStatus(text, kind="") {
+  const status = $("#cameraStatus"); status.textContent = text; status.className = `pill ${kind}`;
+}
+
+async function startCamera() {
+  const image = $("#headCamera"), message = $("#cameraMessage");
+  image.removeAttribute("src"); image.classList.remove("visible");
+  await new Promise(resolve => setTimeout(resolve, 250));
+  message.classList.remove("hidden"); message.textContent = "Looking for the head camera…";
+  setCameraStatus("Checking…");
+  try {
+    const response = await fetch("/api/camera", {cache:"no-store"});
+    const state = await response.json();
+    if (!state.available) throw new Error(state.error || "Head camera is unavailable");
+    setCameraStatus("Starting…");
+    image.onload = () => setCameraStatus("Live", "good");
+    image.onerror = () => { image.classList.remove("visible"); message.classList.remove("hidden"); message.textContent = "Camera stream stopped"; setCameraStatus("Offline", "bad"); };
+    image.classList.add("visible"); message.classList.add("hidden");
+    image.src = `/api/camera.mjpg?t=${Date.now()}`;
+  } catch (error) {
+    message.textContent = error.message; setCameraStatus("Unavailable", "bad");
+  }
+}
+
 function renderState(state) {
   telemetry = state;
   $("#connection").textContent = state.connected ? "Robot connected" : "Disconnected";
@@ -83,6 +107,7 @@ function jog(axis, sign, coarse=false) {
 async function initialize() {
   uiConfig = await fetch("/api/config").then(response => response.json());
   buildHand("left"); buildHand("right"); await refreshGrasps(); connect(); updateMotionButtons();
+  startCamera();
   $("#jogMode").onchange = event => {
     const rotation=event.target.value==="rotation", input=$("#jogStep");
     $("#jogStepLabel").textContent=rotation?"Step (°)":"Step (m)";
@@ -99,6 +124,7 @@ async function initialize() {
   $("#loadGrasp").onclick = () => { const grasp=grasps[$("#graspSelect").value]; if (!grasp) return; for (const side of ["left","right"]) loadHand(side,grasp.hands[side]); };
   $("#applyGrasp").onclick = () => send({type:"grasp",name:$("#graspSelect").value,sides:[...($("#applyLeft").checked?["left"]:[]),...($("#applyRight").checked?["right"]:[])],duration_s:Number($("#handDuration").value)});
   $("#refreshGrasps").onclick = refreshGrasps;
+  $("#retryCamera").onclick = startCamera;
   $("#saveGrasp").onsubmit = async event => { event.preventDefault(); const form=new FormData(event.target); const hands={}; if(form.get("left"))hands.left=staged("left"); if(form.get("right"))hands.right=staged("right"); const response=await fetch(`/api/grasps/${encodeURIComponent(form.get("name"))}`,{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({description:form.get("description"),hands})}); const body=await response.json(); if(!response.ok)return toast(body.detail); toast(`Saved ${body.saved}`); await refreshGrasps(); };
   $("#deleteGrasp").onclick = async () => { const name=$("#graspSelect").value; const response=await fetch(`/api/grasps/${encodeURIComponent(name)}`,{method:"DELETE"}); const body=await response.json(); if(!response.ok)return toast(body.detail); toast(`Deleted ${name}`); await refreshGrasps(); };
 }
@@ -108,5 +134,5 @@ document.addEventListener("keydown", event => {
   if (event.repeat || event.target.matches("input,select,textarea")) return;
   const keys={w:[0,1],s:[0,-1],a:[1,1],d:[1,-1],r:[2,1],f:[2,-1]}; const command=keys[event.key.toLowerCase()]; if(command){event.preventDefault();jog(command[0],command[1],event.shiftKey);}
 });
-window.addEventListener("beforeunload", () => socket?.close());
+window.addEventListener("beforeunload", () => { $("#headCamera").removeAttribute("src"); socket?.close(); });
 initialize().catch(error => toast(error.message));

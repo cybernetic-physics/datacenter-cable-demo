@@ -35,6 +35,16 @@ class StubControl:
                 "arms": None, "hands": None}
 
 
+class StubCamera:
+    def __init__(self): self.closed = False
+    def close(self): self.closed = True
+    def status(self):
+        return {"available": True, "streaming": False, "device": "/dev/test-camera",
+                "resolution": [1280, 720], "error": None}
+    def stream(self):
+        return iter([b"--frame\r\nContent-Type: image/jpeg\r\n\r\nJPEG\r\n"])
+
+
 class WebTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -43,7 +53,8 @@ class WebTest(unittest.TestCase):
             "open": {"description": "", "left": OPEN, "right": OPEN},
         }}))
         self.control = StubControl(GraspStore(path))
-        self.client_context = TestClient(create_app(self.control), base_url="http://127.0.0.1")
+        self.camera = StubCamera()
+        self.client_context = TestClient(create_app(self.control, self.camera), base_url="http://127.0.0.1")
         self.client = self.client_context.__enter__()
 
     def tearDown(self):
@@ -61,6 +72,14 @@ class WebTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("test", self.client.get("/api/grasps").json())
         self.assertEqual(self.client.delete("/api/grasps/test").status_code, 200)
+
+    def test_camera_status_and_stream(self):
+        status = self.client.get("/api/camera").json()
+        self.assertTrue(status["available"])
+        response = self.client.get("/api/camera.mjpg")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("multipart/x-mixed-replace", response.headers["content-type"])
+        self.assertIn(b"JPEG", response.content)
 
     def test_websocket_streams_state_and_detaches(self):
         with self.client.websocket_connect(

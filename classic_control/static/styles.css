@@ -10,6 +10,10 @@ h1,h2,h3,p { margin-top:0; } h1 { margin-bottom:0; font-size:30px; } h2 { margin
 main { max-width:1280px; margin:auto; padding:24px; display:grid; gap:18px; }
 .panel { background:linear-gradient(145deg,#161c24,#11161c); border:1px solid var(--line); border-radius:14px; padding:22px; box-shadow:0 16px 60px #0003; }
 .section-heading { justify-content:space-between; margin-bottom:20px; }
+.camera-frame { position:relative; overflow:hidden; aspect-ratio:16/9; max-height:720px; display:grid; place-items:center; background:#050709; border:1px solid var(--line); border-radius:10px; }
+.camera-frame img { width:100%; height:100%; object-fit:contain; display:none; }
+.camera-frame img.visible { display:block; }
+.camera-frame p { position:absolute; margin:0; padding:18px; text-align:center; }
 button,input,select { font:inherit; color:var(--text); background:#0c1117; border:1px solid #34404e; border-radius:7px; padding:9px 11px; }
 button { cursor:pointer; } button:hover { border-color:#607086; } button:disabled { cursor:not-allowed; opacity:.42; }
 button.primary { color:#07120e; background:var(--accent); border-color:var(--accent); font-weight:750; }
@@ -30,4 +34,4 @@ label { color:var(--muted); font-size:12px; display:grid; gap:5px; } label input
 .joint { display:grid; grid-template-columns:110px 1fr 76px; align-items:center; gap:10px; margin:8px 0; } .joint input[type=range] { padding:0; accent-color:var(--accent); }
 #graspSelect { width:100%; min-height:175px; } .grasp-layout form>label { margin-bottom:10px; }
 .toast { position:fixed; right:22px; bottom:22px; max-width:420px; background:#222c37; border:1px solid #4a596b; padding:12px 16px; border-radius:8px; box-shadow:0 8px 30px #0009; }
-@media (max-width:800px) { header { align-items:flex-start; gap:15px; flex-direction:column; }.safety-bar { flex-wrap:wrap; }.safety-bar .danger { margin-left:0; }.pose-cards,.arm-controls,.hand-columns,.grasp-layout { grid-template-columns:1fr; }.form-grid { grid-template-columns:repeat(2,1fr); } }
+@media (max-width:800px) { header { align-items:flex-start; gap:15px; flex-direction:column; }.safety-bar,.camera-panel .section-heading { flex-wrap:wrap; }.safety-bar .danger { margin-left:0; }.pose-cards,.arm-controls,.hand-columns,.grasp-layout { grid-template-columns:1fr; }.form-grid { grid-template-columns:repeat(2,1fr); } }

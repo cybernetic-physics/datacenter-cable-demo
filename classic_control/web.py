@@ -10,11 +10,12 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .arm import ArmPlanner
+from .camera import CameraBusy, CameraUnavailable, HeadCamera
 from .config import grasp_file, xr_teleoperate_root
 from .grasps import DEX3_LIMITS, JOINT_NAMES, Grasp, GraspStore
 from .hardware import UnitreeRobotBackend
@@ -62,14 +63,16 @@ def _real_service() -> ControlService:
     return ControlService(UnitreeRobotBackend(root), ArmPlanner(root), GraspStore(grasp_file()))
 
 
-def create_app(control: ControlService | None = None) -> FastAPI:
+def create_app(control: ControlService | None = None, camera: HeadCamera | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.control = control or _real_service()
+        app.state.camera = camera or HeadCamera()
         await asyncio.to_thread(app.state.control.start)
         try:
             yield
         finally:
+            await asyncio.to_thread(app.state.camera.close)
             await asyncio.to_thread(app.state.control.close)
 
     app = FastAPI(title="Classic Control", version="0.1.0", lifespan=lifespan)
@@ -93,6 +96,24 @@ def create_app(control: ControlService | None = None) -> FastAPI:
     @app.get("/api/config")
     async def ui_config():
         return {"joint_names": JOINT_NAMES, "dex3_limits": DEX3_LIMITS}
+
+    @app.get("/api/camera")
+    async def camera_status():
+        return await asyncio.to_thread(app.state.camera.status)
+
+    @app.get("/api/camera.mjpg")
+    def camera_stream():
+        try:
+            stream = app.state.camera.stream()
+        except CameraBusy as error:
+            raise HTTPException(409, str(error)) from error
+        except CameraUnavailable as error:
+            raise HTTPException(503, str(error)) from error
+        return StreamingResponse(
+            stream,
+            media_type="multipart/x-mixed-replace; boundary=frame",
+            headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+        )
 
     @app.put("/api/grasps/{name}")
     async def put_grasp(name: str, body: GraspBody):

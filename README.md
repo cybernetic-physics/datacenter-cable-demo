@@ -38,6 +38,12 @@ Run these commands from the repository root; the project itself does not need to
 
 Open <http://127.0.0.1:8000>. The server intentionally binds only to localhost and always connects to real hardware.
 
+The Robot view streams the G1's `AIRHUG 02` head camera at 1280×720. It uses
+the camera's native JPEG output through the system GStreamer installation, so
+it adds no Python or Conda dependency. Set `CLASSIC_CONTROL_CAMERA_DEVICE` to
+a V4L2 device or stable `/dev/v4l/by-id/...` path to override automatic camera
+discovery.
+
 `CLASSIC_CONTROL_GRASPS` may point to a different writable grasp YAML file. By default, the application uses [`config/grasps.yaml`](config/grasps.yaml).
 
 ## Controls and safety behavior
@@ -64,6 +70,7 @@ The package is split by responsibility:
 - `arm.py` contains hardware-independent transforms plus the checked Unitree IK wrapper.
 - `hardware.py` is the only owner of DDS command publishers.
 - `service.py` serializes commands and implements stop/hold, release, and fault behavior.
+- `camera.py` independently bridges the head camera to a browser MJPEG stream.
 - `web.py` and `static/` implement the local API and interface.
 
 Run the hardware-free suite from the activated Conda environment with:

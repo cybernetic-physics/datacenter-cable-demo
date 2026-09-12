@@ -241,6 +241,7 @@ class MuJoCoDebugView:
 
             model = mujoco.MjModel.from_xml_path(str(self.model_path))
             self._show_floor_with_visual_geoms(mujoco, model)
+            model.light_castshadow[:] = 0
             model.vis.global_.offwidth = max(model.vis.global_.offwidth, self.width)
             model.vis.global_.offheight = max(model.vis.global_.offheight, self.height)
             measured_data = mujoco.MjData(model)

@@ -30,11 +30,11 @@ class SimulationMathTest(unittest.TestCase):
 
         self.assertEqual(changed["azimuth_deg"], 165.0)
         self.assertEqual(changed["elevation_deg"], 89.0)
-        self.assertEqual(changed["distance_m"], 2.9)
+        self.assertEqual(changed["distance_m"], 3.6)
         reset = view.update_view(reset=True)
         self.assertEqual(reset["azimuth_deg"], 135.0)
         self.assertEqual(reset["elevation_deg"], -20.0)
-        self.assertEqual(reset["distance_m"], 1.45)
+        self.assertEqual(reset["distance_m"], 1.8)
 
     def test_maps_body_and_dex3_joints_by_name(self):
         body = np.arange(35, dtype=float) / 10

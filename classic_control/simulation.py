@@ -64,7 +64,7 @@ HAND_JOINT_NAMES = {
 GHOST_BODY_PARTS = ("shoulder", "elbow", "wrist", "hand")
 DEFAULT_CAMERA_AZIMUTH = 135.0
 DEFAULT_CAMERA_ELEVATION = -20.0
-DEFAULT_CAMERA_DISTANCE = 1.45
+DEFAULT_CAMERA_DISTANCE = 1.8
 
 
 class VisualizationStateProvider(Protocol):
@@ -240,6 +240,7 @@ class MuJoCoDebugView:
             import mujoco
 
             model = mujoco.MjModel.from_xml_path(str(self.model_path))
+            self._show_floor_with_visual_geoms(mujoco, model)
             model.vis.global_.offwidth = max(model.vis.global_.offwidth, self.width)
             model.vis.global_.offheight = max(model.vis.global_.offheight, self.height)
             measured_data = mujoco.MjData(model)
@@ -320,7 +321,7 @@ class MuJoCoDebugView:
     def _camera(self, mujoco):
         camera = mujoco.MjvCamera()
         camera.type = mujoco.mjtCamera.mjCAMERA_FREE
-        camera.lookat[:] = (0.15, 0.0, 0.95)
+        camera.lookat[:] = (0.15, 0.0, 0.8)
         self._apply_camera_view(camera)
         return camera
 
@@ -339,6 +340,14 @@ class MuJoCoDebugView:
                 raise RuntimeError(f"MuJoCo model is missing joint {name}")
             addresses[name] = int(model.jnt_qposadr[joint_id])
         return addresses
+
+    @staticmethod
+    def _show_floor_with_visual_geoms(mujoco, model) -> None:
+        """Expose only the floor from collision group 0 in the rendered group 1."""
+        floor_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
+        if floor_id < 0:
+            raise RuntimeError("MuJoCo model is missing the floor geom")
+        model.geom_group[floor_id] = 1
 
     @staticmethod
     def _set_joint_values(data, addresses: dict[str, int], values: dict[str, float]) -> None:

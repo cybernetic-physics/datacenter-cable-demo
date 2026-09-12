@@ -21,6 +21,7 @@ class StubControl:
         self.owner = None
         self.detached = False
         self.aruco_commands = []
+        self.gate_commands = []
 
     def start(self): pass
     def close(self): pass
@@ -31,6 +32,7 @@ class StubControl:
     def stop_motion(self, owner): pass
     def release_control(self, owner): pass
     def command_aruco(self, *args): self.aruco_commands.append(args)
+    def command_gate(self, *args): self.gate_commands.append(args)
     def telemetry(self):
         return {"connected": True, "owner": self.owner is not None,
                 "acquired": False, "active_command": None, "fault": None,
@@ -148,6 +150,7 @@ class WebTest(unittest.TestCase):
         self.assertEqual(config["dictionary"], "DICT_4X4_50")
         self.assertEqual(config["targeting"]["default_offset"]["xyz_m"], [0.0, 0.0, 0.08])
         self.assertEqual(config["targeting"]["default_offset"]["rpy_deg"], [0.0, 90.0, 90.0])
+        self.assertEqual(config["targeting"]["right_rack_marker_id"], 1)
         response = self.client.put(
             "/api/aruco/config",
             json={"dictionary": "DICT_5X5_100", "marker_length_mm": 42.0},
@@ -192,6 +195,22 @@ class WebTest(unittest.TestCase):
             while not self.control.aruco_commands and time.monotonic() < deadline:
                 socket.receive_json()
         self.assertEqual(self.control.aruco_commands[0][1:4], ("right", 3, None))
+
+    def test_websocket_accepts_gate(self):
+        with self.client.websocket_connect(
+            "/api/control", headers={"origin": "http://127.0.0.1", "host": "127.0.0.1"}
+        ) as socket:
+            socket.receive_json()
+            socket.send_json({
+                "type": "gate",
+                "side": "right",
+                "gate": 23,
+                "duration_s": 3.0,
+            })
+            deadline = time.monotonic() + 1.0
+            while not self.control.gate_commands and time.monotonic() < deadline:
+                socket.receive_json()
+        self.assertEqual(self.control.gate_commands[0][1:4], ("right", 23, None))
 
 
 if __name__ == "__main__":

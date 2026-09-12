@@ -60,15 +60,26 @@ class FakeArucoTargeting:
     def __init__(self):
         self.config = SimpleNamespace(max_waist_error_rad=0.035)
         self.offset = None
+        self.gate = None
 
     def resolve(self, marker_id, offset):
         self.offset = offset
         wrist = np.eye(4); wrist[:3, 3] = (0.25, -0.20, 0.35)
         return ResolvedArucoTarget(marker_id, 0.1, 0.2, np.eye(4), np.eye(4), np.eye(4), wrist)
 
+    def resolve_gate(self, gate_index, offset):
+        self.gate = gate_index
+        self.offset = offset
+        wrist = np.eye(4); wrist[:3, 3] = (0.15, -0.25, 0.45)
+        return SimpleNamespace(gate_index=gate_index, base_from_wrist=wrist)
+
     @staticmethod
     def resolution_json(resolved):
         return {"marker_id": resolved.marker_id}
+
+    @staticmethod
+    def gate_resolution_json(resolved):
+        return {"target_kind": "gate", "gate_index": resolved.gate_index}
 
 
 def wait_idle(service, timeout=1):
@@ -147,6 +158,18 @@ class ServiceTest(unittest.TestCase):
         self.backend.q[12] = 0.04
         with self.assertRaisesRegex(RuntimeError, "neutral waist"):
             self.service.command_aruco("owner", "right", 3, None, 2.0, "auto")
+
+    def test_gate_command_routes_through_absolute_pose(self):
+        targeting = FakeArucoTargeting()
+        self.service.aruco_targeting = targeting
+        captured = []
+        self.service.command_pose = lambda owner, target: captured.append((owner, target))
+
+        self.service.command_gate("owner", "right", 23, None, 3.0, "auto")
+
+        self.assertEqual(targeting.gate, 23)
+        self.assertEqual(captured[0][1].xyz, (0.15, -0.25, 0.45))
+        self.assertEqual(self.service.telemetry()["aruco_target"]["gate_index"], 23)
 
 
 if __name__ == "__main__":

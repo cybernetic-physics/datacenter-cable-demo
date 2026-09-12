@@ -78,9 +78,17 @@ cleared by restarting the application. Keep the rack clear and validate the
 configured transform with a slow, supported-arm test before approaching
 hardware.
 
+The bottom Ethernet row is derived from the saved right-rack marker selected by
+`right_rack_marker_id` in the same targeting configuration. Gates are numbered
+from `0` at the right through `23` at the left. **Move to gate** uses the same
+arm, duration, elbow, marker-relative wrist orientation, and offset controls as
+**Move to ArUco**, then routes the resolved gate-center target through the same
+absolute IK path. MuJoCo shows all 24 centers and highlights the most recently
+targeted gate.
+
 The browser also shows a read-only MuJoCo debug view beside the camera. It
-mirrors measured body and Dex3 joints, renders session-saved metric markers in the G1
-pelvis frame, and overlays the last resolved marker and wrist coordinates. A
+mirrors measured body and Dex3 joints, renders session-saved metric markers in
+the G1 pelvis frame, and overlays the last resolved marker and wrist coordinates. A
 cyan ghost shows the final planned arm configuration when IK succeeds; a
 rejected target remains visible without a ghost so reachability and frame
 errors can be diagnosed. Drag the view to orbit, use the mouse wheel to zoom,

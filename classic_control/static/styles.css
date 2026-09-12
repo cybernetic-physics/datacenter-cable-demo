@@ -43,7 +43,7 @@ kbd { font-size:11px; opacity:.65; }
 .pose-cards article { padding:14px; border:1px solid var(--line); border-radius:9px; background:#0e1319; }
 .pose { color:var(--muted); font:13px ui-monospace,SFMono-Regular,monospace; line-height:1.7; }
 .arm-controls,.hand-columns,.grasp-layout { display:grid; grid-template-columns:1fr 1fr; gap:28px; }
-.form-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }.form-row.compact { align-items:end; }
+.form-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }.form-grid>button { align-self:end; }.form-row.compact { align-items:end; }
 label { color:var(--muted); font-size:12px; display:grid; gap:5px; } label input,label select { width:100%; }
 .jog-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; margin-top:12px; }
 .hand-columns>div { border:1px solid var(--line); border-radius:10px; padding:14px; }

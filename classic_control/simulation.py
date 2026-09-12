@@ -12,7 +12,12 @@ from typing import Protocol
 import cv2
 import numpy as np
 
-from .aruco_targeting import ArucoTargeting, VisualizedMarker, pose_transform
+from .aruco_targeting import (
+    ArucoTargeting,
+    VisualizedGate,
+    VisualizedMarker,
+    pose_transform,
+)
 from .camera import multipart_jpeg
 from .models import RobotVisualizationState
 
@@ -290,14 +295,29 @@ class MuJoCoDebugView:
                         self._set_joint_values(target_data, qpos_addresses, target_values)
                         mujoco.mj_forward(model, target_data)
                 markers = self.targeting.visualized_markers()
+                gates = self.targeting.visualized_gates()
                 world_base = self._world_base(mujoco, model, measured_data)
                 aruco_target = None if snapshot is None else snapshot.aruco_target
+                selected_gate = (
+                    aruco_target.get("gate_index")
+                    if aruco_target is not None
+                    and aruco_target.get("target_kind") == "gate"
+                    else None
+                )
                 self._apply_camera_view(camera)
                 renderer.update_scene(measured_data, camera=camera, scene_option=option)
                 if target_ready:
                     self._add_ghost_geoms(mujoco, renderer.scene, model, target_data, ghost_geoms)
                 for marker in markers:
                     self._add_marker(mujoco, renderer.scene, world_base, marker)
+                for gate in gates:
+                    self._add_gate(
+                        mujoco,
+                        renderer.scene,
+                        world_base,
+                        gate,
+                        gate.gate_index == selected_gate,
+                    )
                 if aruco_target is not None:
                     self._add_target(mujoco, renderer.scene, world_base, aruco_target)
                 renderer.scene.flags[mujoco.mjtRndFlag.mjRND_SHADOW] = 0
@@ -424,23 +444,45 @@ class MuJoCoDebugView:
             geom.emission = 0.25
         self._add_axes(mujoco, scene, pose, max(0.05, marker.size_m))
 
+    def _add_gate(
+        self,
+        mujoco,
+        scene,
+        world_base_pose: np.ndarray,
+        gate: VisualizedGate,
+        selected: bool,
+    ) -> None:
+        pose = world_from_base(world_base_pose, gate.base_from_gate)
+        geom = self._append_geom(
+            mujoco,
+            scene,
+            mujoco.mjtGeom.mjGEOM_SPHERE,
+            (0.007 if selected else 0.003,) * 3,
+            pose[:3, 3],
+            pose[:3, :3],
+            (1.0, 0.15, 0.65, 1.0) if selected else (0.2, 1.0, 0.4, 0.9),
+        )
+        if geom is not None:
+            geom.emission = 0.35
+
     def _add_target(self, mujoco, scene, world_base_pose: np.ndarray, target: dict[str, object]) -> None:
         marker = target.get("base_marker")
+        anchor = target.get("base_gate", marker)
         wrist = target.get("base_wrist_target")
-        if not isinstance(marker, dict) or not isinstance(wrist, dict):
+        if not isinstance(anchor, dict) or not isinstance(wrist, dict):
             return
         try:
-            marker_pose = pose_transform(tuple(marker["xyz"]), tuple(marker["rpy_deg"]))
+            anchor_pose = pose_transform(tuple(anchor["xyz"]), tuple(anchor["rpy_deg"]))
             wrist_pose = pose_transform(tuple(wrist["xyz"]), tuple(wrist["rpy_deg"]))
         except (KeyError, TypeError, ValueError):
             return
-        world_marker = world_from_base(world_base_pose, marker_pose)
+        world_anchor = world_from_base(world_base_pose, anchor_pose)
         world_wrist = world_from_base(world_base_pose, wrist_pose)
         self._add_axes(mujoco, scene, world_wrist, 0.10)
         self._add_connector(
             mujoco,
             scene,
-            world_marker[:3, 3],
+            world_anchor[:3, 3],
             world_wrist[:3, 3],
             (0.2, 0.9, 1.0, 0.9),
             3.0,
@@ -509,9 +551,12 @@ class MuJoCoDebugView:
         else:
             lines.append("No session-saved metric ArUco markers")
         if target is not None:
+            if target.get("target_kind") == "gate":
+                lines.append(f"Selected Ethernet gate {target.get('gate_index')} (magenta)")
             marker_text = self._pose_text("Marker", target.get("base_marker"))
+            gate_text = self._pose_text("Gate center", target.get("base_gate"))
             wrist_text = self._pose_text("Wrist target", target.get("base_wrist_target"))
-            lines.extend(text for text in (marker_text, wrist_text) if text)
+            lines.extend(text for text in (marker_text, gate_text, wrist_text) if text)
             if not target_ready:
                 lines.append("No valid IK ghost for this target")
         for index, line in enumerate(lines):

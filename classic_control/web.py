@@ -79,6 +79,14 @@ class ArucoPoseMessage(BaseModel):
     elbow: ElbowBias = ElbowBias.AUTO
 
 
+class GateMessage(BaseModel):
+    side: ArmSide
+    gate: int = Field(ge=0, le=23)
+    offset: ArucoOffsetBody | None = None
+    duration_s: float = Field(default=3.0, ge=0.05, le=60.0)
+    elbow: ElbowBias = ElbowBias.AUTO
+
+
 class SimulationViewBody(BaseModel):
     azimuth_delta_deg: float = Field(default=0.0, ge=-180.0, le=180.0)
     elevation_delta_deg: float = Field(default=0.0, ge=-180.0, le=180.0)
@@ -327,6 +335,22 @@ def create_app(
                         )
                         task = asyncio.create_task(
                             run_command(service.command_aruco, *arguments)
+                        )
+                    elif message_type == "gate":
+                        message = GateMessage(**payload)
+                        offset = None if message.offset is None else MarkerOffset(
+                            message.offset.xyz_m, message.offset.rpy_deg
+                        )
+                        arguments = (
+                            owner,
+                            message.side.value,
+                            message.gate,
+                            offset,
+                            message.duration_s,
+                            message.elbow.value,
+                        )
+                        task = asyncio.create_task(
+                            run_command(service.command_gate, *arguments)
                         )
                     elif message_type == "normal":
                         duration = float(payload.get("duration_s", 20.0))

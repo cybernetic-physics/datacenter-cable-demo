@@ -1,6 +1,7 @@
 version: 1
 aruco_targeting:
   camera_serial_number: "254322072098"
+  right_rack_marker_id: 1
 
   # G1 pelvis <- D435i RGB optical frame with the waist at zero. This composes
   # the pinned G1 URDF pelvis/torso/D435 mount with the standard ROS camera-link

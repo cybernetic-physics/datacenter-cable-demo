@@ -226,7 +226,40 @@ class ControlService:
         duration_s: float,
         elbow: str,
     ) -> None:
-        """Resolve a fresh marker observation, then use the absolute-pose IK path."""
+        """Resolve a saved marker pose, then use the absolute-pose IK path."""
+        targeting = self._require_neutral_targeting(owner)
+        resolved = targeting.resolve(marker_id, offset)
+        self._command_targeting_pose(
+            owner,
+            side,
+            resolved.base_from_wrist,
+            duration_s,
+            elbow,
+            targeting.resolution_json(resolved),
+        )
+
+    def command_gate(
+        self,
+        owner: str,
+        side: str,
+        gate_index: int,
+        offset: MarkerOffset | None,
+        duration_s: float,
+        elbow: str,
+    ) -> None:
+        """Resolve a rack gate center, then use the absolute-pose IK path."""
+        targeting = self._require_neutral_targeting(owner)
+        resolved = targeting.resolve_gate(gate_index, offset)
+        self._command_targeting_pose(
+            owner,
+            side,
+            resolved.base_from_wrist,
+            duration_s,
+            elbow,
+            targeting.gate_resolution_json(resolved),
+        )
+
+    def _require_neutral_targeting(self, owner: str) -> ArucoTargeting:
         self._require_motion_authority(owner)
         if self.aruco_targeting is None:
             raise RuntimeError("ArUco targeting is not configured")
@@ -240,10 +273,19 @@ class ControlService:
                 "ArUco targeting requires a neutral waist; use Normal pose first "
                 f"(limit {waist_limit:.3f} rad)"
             )
-        resolved = self.aruco_targeting.resolve(marker_id, offset)
+        return self.aruco_targeting
+
+    def _command_targeting_pose(
+        self,
+        owner: str,
+        side: str,
+        wrist: np.ndarray,
+        duration_s: float,
+        elbow: str,
+        debug_target: dict[str, object],
+    ) -> None:
         with self._lock:
-            self._last_aruco_target = self.aruco_targeting.resolution_json(resolved)
-        wrist = resolved.base_from_wrist
+            self._last_aruco_target = debug_target
         target = PoseTarget(
             ArmSide(side),
             tuple(float(value) for value in wrist[:3, 3]),

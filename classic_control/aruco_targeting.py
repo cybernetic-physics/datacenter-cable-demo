@@ -18,6 +18,12 @@ from .models import MarkerOffset
 DEFAULT_TARGETING_CONFIG = (
     Path(__file__).resolve().parent.parent / "config" / "aruco-targeting.yaml"
 )
+GATE_COUNT = 24
+GATE_SIZE_M = 0.015
+GATE_GAP_M = 0.004
+GATE_PITCH_M = GATE_SIZE_M + GATE_GAP_M
+GATE_ZERO_LEFT_EDGE_OFFSET_M = 0.028
+GATE_ROW_BOTTOM_OFFSET_M = 0.020
 
 
 class MarkerObservationSource(Protocol):
@@ -36,6 +42,7 @@ class TargetingConfig:
     max_reprojection_error_px: float
     max_waist_error_rad: float
     camera_serial_number: str
+    right_rack_marker_id: int
     transform_source: str
 
 
@@ -51,6 +58,20 @@ class ResolvedArucoTarget:
 
 
 @dataclass(frozen=True)
+class ResolvedGateTarget:
+    marker_id: int
+    gate_index: int
+    detection_age_s: float
+    reprojection_error_px: float
+    camera_from_marker: np.ndarray
+    base_from_marker: np.ndarray
+    marker_from_gate: np.ndarray
+    base_from_gate: np.ndarray
+    gate_from_wrist: np.ndarray
+    base_from_wrist: np.ndarray
+
+
+@dataclass(frozen=True)
 class VisualizedMarker:
     marker_id: int
     size_m: float
@@ -58,6 +79,12 @@ class VisualizedMarker:
     saved_for_s: float
     reprojection_error_px: float
     base_from_marker: np.ndarray
+
+
+@dataclass(frozen=True)
+class VisualizedGate:
+    gate_index: int
+    base_from_gate: np.ndarray
 
 
 @dataclass(frozen=True)
@@ -69,6 +96,41 @@ class SavedMarker:
     camera_from_marker: np.ndarray
     base_from_marker: np.ndarray
     saved_at: float
+
+
+@dataclass(frozen=True)
+class EthernetGateGrid:
+    """Bottom-row Ethernet gate centers in an upright ArUco marker frame."""
+
+    marker_size_m: float
+
+    def __post_init__(self) -> None:
+        if not np.isfinite(self.marker_size_m) or self.marker_size_m <= 0:
+            raise ValueError("marker_size_m must be positive and finite")
+
+    @staticmethod
+    def validate_gate_index(gate_index: int) -> int:
+        if isinstance(gate_index, bool) or not isinstance(gate_index, (int, np.integer)):
+            raise TypeError("gate index must be an integer in [0, 23]")
+        index = int(gate_index)
+        if not 0 <= index < GATE_COUNT:
+            raise ValueError("gate index must be in [0, 23]")
+        return index
+
+    def marker_from_gate(self, gate_index: int) -> np.ndarray:
+        index = self.validate_gate_index(gate_index)
+        transform = np.eye(4)
+        transform[:3, 3] = (
+            -self.marker_size_m / 2
+            + GATE_ZERO_LEFT_EDGE_OFFSET_M
+            + GATE_SIZE_M / 2
+            - GATE_PITCH_M * index,
+            self.marker_size_m / 2
+            + GATE_ROW_BOTTOM_OFFSET_M
+            + GATE_SIZE_M / 2,
+            0.0,
+        )
+        return transform
 
 
 def pose_transform(xyz: tuple[float, float, float], rpy_deg: tuple[float, float, float]) -> np.ndarray:
@@ -169,6 +231,7 @@ class ArucoTargeting:
                 max_reprojection_error_px=float(payload["max_reprojection_error_px"]),
                 max_waist_error_rad=float(payload["max_waist_error_rad"]),
                 camera_serial_number=str(payload["camera_serial_number"]),
+                right_rack_marker_id=int(payload["right_rack_marker_id"]),
                 transform_source=str(payload["base_from_internal_camera"]["source"]),
             )
         except (KeyError, TypeError, ValueError, OSError) as error:
@@ -180,6 +243,8 @@ class ArucoTargeting:
         )
         if not np.all(np.isfinite(limits)) or any(value <= 0 for value in limits):
             raise RuntimeError(f"invalid ArUco targeting configuration: {path}")
+        if config.right_rack_marker_id < 0:
+            raise RuntimeError(f"invalid ArUco targeting configuration: {path}")
         return config
 
     def configuration(self) -> dict[str, object]:
@@ -187,6 +252,7 @@ class ArucoTargeting:
             "base_frame": "g1_pelvis",
             "camera_frame": "internal_d435i_color_optical",
             "camera_serial_number": self.config.camera_serial_number,
+            "right_rack_marker_id": self.config.right_rack_marker_id,
             "transform_source": self.config.transform_source,
             "base_from_camera": _pose_json(self.config.base_from_camera),
             "default_offset": {
@@ -203,17 +269,9 @@ class ArucoTargeting:
     ) -> ResolvedArucoTarget:
         if marker_id < 0:
             raise ValueError("marker_id must be non-negative")
-        saved = self._saved_marker(marker_id)
-        if saved is None:
-            result, marker, age_s = self.observations.marker_observation(marker_id)
-            age_s = self._validate_frame(result, age_s)
-            if marker is None:
-                raise RuntimeError(f"ArUco marker {marker_id} is not detected")
-            candidate = self._validated_marker(result, marker, age_s)
-            if candidate.marker_id != marker_id:
-                raise RuntimeError(f"ArUco marker {marker_id} is not detected")
-            saved = self._save_first(candidate)
+        saved = self._require_saved_marker(marker_id)
         selected_offset = offset or self.config.default_offset
+        selected_offset.validate()
         marker_wrist = pose_transform(selected_offset.xyz_m, selected_offset.rpy_deg)
         return ResolvedArucoTarget(
             marker_id=marker_id,
@@ -224,6 +282,42 @@ class ArucoTargeting:
             marker_from_wrist=marker_wrist,
             base_from_wrist=saved.base_from_marker @ marker_wrist,
         )
+
+    def resolve_gate(
+        self, gate_index: int, offset: MarkerOffset | None = None
+    ) -> ResolvedGateTarget:
+        gate_index = EthernetGateGrid.validate_gate_index(gate_index)
+        saved = self._require_saved_marker(self.config.right_rack_marker_id)
+        marker_gate = EthernetGateGrid(saved.size_m).marker_from_gate(gate_index)
+        selected_offset = offset or self.config.default_offset
+        selected_offset.validate()
+        gate_wrist = pose_transform(selected_offset.xyz_m, selected_offset.rpy_deg)
+        base_gate = saved.base_from_marker @ marker_gate
+        return ResolvedGateTarget(
+            marker_id=saved.marker_id,
+            gate_index=int(gate_index),
+            detection_age_s=saved.detection_age_s,
+            reprojection_error_px=saved.reprojection_error_px,
+            camera_from_marker=saved.camera_from_marker.copy(),
+            base_from_marker=saved.base_from_marker.copy(),
+            marker_from_gate=marker_gate,
+            base_from_gate=base_gate,
+            gate_from_wrist=gate_wrist,
+            base_from_wrist=base_gate @ gate_wrist,
+        )
+
+    def _require_saved_marker(self, marker_id: int) -> SavedMarker:
+        saved = self._saved_marker(marker_id)
+        if saved is not None:
+            return saved
+        result, marker, age_s = self.observations.marker_observation(marker_id)
+        age_s = self._validate_frame(result, age_s)
+        if marker is None:
+            raise RuntimeError(f"ArUco marker {marker_id} is not detected")
+        candidate = self._validated_marker(result, marker, age_s)
+        if candidate.marker_id != marker_id:
+            raise RuntimeError(f"ArUco marker {marker_id} is not detected")
+        return self._save_first(candidate)
 
     def _validate_frame(
         self, result: dict[str, object], age_s: float | None
@@ -336,9 +430,24 @@ class ArucoTargeting:
             for marker in saved
         )
 
+    def visualized_gates(self) -> tuple[VisualizedGate, ...]:
+        """Return the bottom gate row when its rack marker has been saved."""
+        saved = self._saved_marker(self.config.right_rack_marker_id)
+        if saved is None:
+            return ()
+        grid = EthernetGateGrid(saved.size_m)
+        return tuple(
+            VisualizedGate(
+                gate_index,
+                saved.base_from_marker @ grid.marker_from_gate(gate_index),
+            )
+            for gate_index in range(GATE_COUNT)
+        )
+
     @staticmethod
     def resolution_json(resolved: ResolvedArucoTarget) -> dict[str, object]:
         return {
+            "target_kind": "aruco",
             "marker_id": resolved.marker_id,
             "marker_pose_source": "session_latch",
             "detection_age_s": round(resolved.detection_age_s, 4),
@@ -346,5 +455,22 @@ class ArucoTargeting:
             "camera_marker": _pose_json(resolved.camera_from_marker),
             "base_marker": _pose_json(resolved.base_from_marker),
             "marker_wrist_offset": _pose_json(resolved.marker_from_wrist),
+            "base_wrist_target": _pose_json(resolved.base_from_wrist),
+        }
+
+    @staticmethod
+    def gate_resolution_json(resolved: ResolvedGateTarget) -> dict[str, object]:
+        return {
+            "target_kind": "gate",
+            "marker_id": resolved.marker_id,
+            "gate_index": resolved.gate_index,
+            "marker_pose_source": "session_latch",
+            "detection_age_s": round(resolved.detection_age_s, 4),
+            "reprojection_error_px": round(resolved.reprojection_error_px, 4),
+            "camera_marker": _pose_json(resolved.camera_from_marker),
+            "base_marker": _pose_json(resolved.base_from_marker),
+            "marker_gate": _pose_json(resolved.marker_from_gate),
+            "base_gate": _pose_json(resolved.base_from_gate),
+            "gate_wrist_offset": _pose_json(resolved.gate_from_wrist),
             "base_wrist_target": _pose_json(resolved.base_from_wrist),
         }

@@ -7,6 +7,7 @@ import yaml
 
 from classic_control.aruco_targeting import (
     ArucoTargeting,
+    EthernetGateGrid,
     compose_target,
     pose_transform,
 )
@@ -18,6 +19,7 @@ def targeting_payload() -> dict[str, object]:
         "version": 1,
         "aruco_targeting": {
             "camera_serial_number": "test-camera",
+            "right_rack_marker_id": 3,
             "base_from_internal_camera": {
                 "source": "test",
                 "matrix": np.eye(4).tolist(),
@@ -42,6 +44,36 @@ class StubObservations:
 
 
 class ArucoTransformTest(unittest.TestCase):
+    def test_gate_zero_uses_marker_edges_and_gate_center(self):
+        pose = EthernetGateGrid(0.05).marker_from_gate(0)
+
+        np.testing.assert_allclose(pose[:3, 3], (0.0105, 0.0525, 0.0))
+        np.testing.assert_allclose(pose[:3, :3], np.eye(3))
+
+    def test_gate_pitch_and_gate_23(self):
+        grid = EthernetGateGrid(0.05)
+        gate_0 = grid.marker_from_gate(0)
+        gate_1 = grid.marker_from_gate(1)
+        gate_23 = grid.marker_from_gate(23)
+
+        self.assertAlmostEqual(gate_0[0, 3] - gate_1[0, 3], 0.019)
+        self.assertAlmostEqual(gate_23[0, 3], 0.0105 - 23 * 0.019)
+        self.assertAlmostEqual(gate_23[1, 3], 0.0525)
+
+    def test_gate_grid_uses_detected_marker_size(self):
+        small = EthernetGateGrid(0.05).marker_from_gate(0)
+        large = EthernetGateGrid(0.10).marker_from_gate(0)
+
+        np.testing.assert_allclose(
+            large[:3, 3] - small[:3, 3], (-0.025, 0.025, 0.0)
+        )
+
+    def test_gate_grid_rejects_invalid_indices(self):
+        grid = EthernetGateGrid(0.05)
+        for value in (-1, 24, 1.5, True):
+            with self.subTest(value=value), self.assertRaises((TypeError, ValueError)):
+                grid.marker_from_gate(value)
+
     def test_camera_to_base_composition(self):
         base_camera = pose_transform((1, 2, 3), (0, 0, 90))
         camera_marker = pose_transform((0.2, 0, 0), (0, 0, 0))
@@ -112,6 +144,22 @@ class ArucoValidationTest(unittest.TestCase):
         second = resolver.resolve(3)
 
         np.testing.assert_allclose(second.base_from_marker, first.base_from_marker)
+
+    def test_gate_resolution_reuses_saved_rack_marker_and_default_offset(self):
+        resolver = self.resolver()
+
+        resolved = resolver.resolve_gate(23)
+
+        np.testing.assert_allclose(
+            resolved.base_from_gate[:3, 3],
+            (0.1 + 0.0105 - 23 * 0.019, 0.2 + 0.0525, 0.3),
+        )
+        np.testing.assert_allclose(
+            resolved.base_from_wrist,
+            resolved.base_from_gate
+            @ pose_transform((0, 0, 0.08), (0, 90, 90)),
+        )
+        self.assertEqual(len(resolver.visualized_gates()), 24)
 
     def test_visualization_latches_first_fresh_usable_marker_pose(self):
         result = {

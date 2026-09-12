@@ -68,7 +68,7 @@
       <pre id="arucoDetections" class="detection-readout muted">Enable detection to inspect markers.</pre>
       <form id="arucoTargetForm" class="aruco-target">
         <div class="section-heading compact-heading">
-          <div><p class="eyebrow">MARKER-RELATIVE IK</p><h3>Move wrist to observed ArUco</h3></div>
+          <div><p class="eyebrow">MARKER-RELATIVE IK</p><h3>Move wrist to saved marker or gate</h3></div>
           <button class="primary motion" type="submit">Move to ArUco</button>
         </div>
         <div class="form-grid">
@@ -82,6 +82,8 @@
           <label>Offset pitch (°)<input name="pitch" type="number" step="0.1" required></label>
           <label>Offset yaw (°)<input name="yaw" type="number" step="0.1" required></label>
           <label>Elbow<select name="elbow"><option>auto</option><option>down</option><option>out</option><option>in</option><option>up</option></select></label>
+          <label><span id="gateLabel">Ethernet gate</span><input name="gate" type="number" value="0" min="0" max="23" step="1" required></label>
+          <button id="moveGate" class="primary motion" type="button">Move to gate</button>
         </div>
         <pre id="arucoTargetDebug" class="detection-readout muted">No ArUco target resolved yet.</pre>
       </form>

@@ -192,7 +192,7 @@ function renderState(state) {
     $("#arucoTargetDebug").textContent=
       `Marker ${target.marker_id} in pelvis\n${poseText(target.base_marker)}\n`+
       `Final wrist target\n${poseText(target.base_wrist_target)}\n`+
-      `Age ${n(target.detection_age_s,3)} s · reprojection ${n(target.reprojection_error_px,2)} px`;
+      `Session-saved pose · capture age ${n(target.detection_age_s,3)} s · reprojection ${n(target.reprojection_error_px,2)} px`;
   }
   if (state.arms) {
     $("#leftPose").textContent = poseText(state.arms.left.measured);
@@ -268,7 +268,6 @@ async function initialize() {
   $("#arucoTargetForm").onsubmit = event => {
     event.preventDefault();
     const form=new FormData(event.target);
-    if (!arucoMode()) return toast("Enable internal-camera ArUco detection first");
     send({
       type:"aruco_pose",
       side:form.get("side"),

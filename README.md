@@ -55,27 +55,31 @@ disabled if the active Teleimager serial or stream profile does not match.
 Reported coordinates follow OpenCV's camera convention: +X right, +Y down, and
 +Z forward.
 
-With metric detection enabled, **Move to ArUco** resolves the selected marker
-into the neutral-waist G1 pelvis frame and sends the resulting wrist pose
+With metric detection enabled, the first valid pose for each marker ID is
+latched in the neutral-waist G1 pelvis frame for the rest of the server
+session. Later detections cannot move it, and detection may be turned off after
+the desired IDs have been saved. **Move to ArUco** sends the selected saved pose
 through the same checked absolute IK path as a manually entered target. The
 default marker-relative offset is 8 cm along the marker normal toward the
 camera. Its default rotation points the G1 wrist/tool +X axis toward the marker
 plane while keeping wrist +Z aligned with marker-up; XYZ and RPY offsets remain
-editable in the UI. The resolved pelvis-frame
-marker pose and final wrist target remain visible below the controls.
+editable in the UI. The resolved pelvis-frame marker pose and final wrist
+target remain visible below the controls.
 
 The camera extrinsic, default offset, freshness/reprojection limits, and
 neutral-waist tolerance are tracked in
 [`config/aruco-targeting.yaml`](config/aruco-targeting.yaml). The current
 extrinsic composes the pinned G1 URDF mount at zero waist with the standard
 OpenCV optical-axis convention. ArUco motion is rejected if the waist is not
-neutral, the camera identity/profile is wrong, metric pose is unavailable, the
-selected marker is absent or older than 0.5 seconds, or reprojection error is
-over 2 pixels. Keep the rack clear and validate the configured transform with
-a slow, supported-arm test before approaching hardware.
+neutral or no valid pose has yet been saved. A pose is saved only when the
+camera identity/profile and metric calibration are valid, the detection is
+under 0.5 seconds old, and reprojection error is under 2 pixels. Saved poses are
+cleared by restarting the application. Keep the rack clear and validate the
+configured transform with a slow, supported-arm test before approaching
+hardware.
 
 The browser also shows a read-only MuJoCo debug view beside the camera. It
-mirrors measured body and Dex3 joints, renders fresh metric markers in the G1
+mirrors measured body and Dex3 joints, renders session-saved metric markers in the G1
 pelvis frame, and overlays the last resolved marker and wrist coordinates. A
 cyan ghost shows the final planned arm configuration when IK succeeds; a
 rejected target remains visible without a ghost so reachability and frame

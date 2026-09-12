@@ -502,11 +502,12 @@ class MuJoCoDebugView:
             lines.append(f"Robot state unavailable: {state_error}")
         if markers:
             lines.extend(
-                f"ArUco {marker.marker_id}: error {marker.reprojection_error_px:.2f}px, age {marker.detection_age_s:.3f}s"
+                f"ArUco {marker.marker_id}: SAVED {marker.saved_for_s:.1f}s, "
+                f"capture error {marker.reprojection_error_px:.2f}px"
                 for marker in markers
             )
         else:
-            lines.append("No fresh metric ArUco markers")
+            lines.append("No session-saved metric ArUco markers")
         if target is not None:
             marker_text = self._pose_text("Marker", target.get("base_marker"))
             wrist_text = self._pose_text("Wrist target", target.get("base_wrist_target"))

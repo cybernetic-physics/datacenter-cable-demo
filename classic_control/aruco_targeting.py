@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -53,8 +55,20 @@ class VisualizedMarker:
     marker_id: int
     size_m: float
     detection_age_s: float
+    saved_for_s: float
     reprojection_error_px: float
     base_from_marker: np.ndarray
+
+
+@dataclass(frozen=True)
+class SavedMarker:
+    marker_id: int
+    size_m: float
+    detection_age_s: float
+    reprojection_error_px: float
+    camera_from_marker: np.ndarray
+    base_from_marker: np.ndarray
+    saved_at: float
 
 
 def pose_transform(xyz: tuple[float, float, float], rpy_deg: tuple[float, float, float]) -> np.ndarray:
@@ -123,7 +137,7 @@ def _pose_json(transform: np.ndarray) -> dict[str, list[float]]:
 
 
 class ArucoTargeting:
-    """Validate a live marker pose and resolve one configurable wrist target."""
+    """Latch valid marker poses for the session and resolve wrist targets."""
 
     def __init__(
         self,
@@ -132,6 +146,8 @@ class ArucoTargeting:
     ):
         self.observations = observations
         self.config = self._load_config(config_path)
+        self._saved_lock = threading.Lock()
+        self._saved_markers: dict[int, SavedMarker] = {}
 
     @staticmethod
     def _load_config(path: Path) -> TargetingConfig:
@@ -187,20 +203,53 @@ class ArucoTargeting:
     ) -> ResolvedArucoTarget:
         if marker_id < 0:
             raise ValueError("marker_id must be non-negative")
-        result, marker, age_s = self.observations.marker_observation(marker_id)
+        saved = self._saved_marker(marker_id)
+        if saved is None:
+            result, marker, age_s = self.observations.marker_observation(marker_id)
+            age_s = self._validate_frame(result, age_s)
+            if marker is None:
+                raise RuntimeError(f"ArUco marker {marker_id} is not detected")
+            candidate = self._validated_marker(result, marker, age_s)
+            if candidate.marker_id != marker_id:
+                raise RuntimeError(f"ArUco marker {marker_id} is not detected")
+            saved = self._save_first(candidate)
+        selected_offset = offset or self.config.default_offset
+        marker_wrist = pose_transform(selected_offset.xyz_m, selected_offset.rpy_deg)
+        return ResolvedArucoTarget(
+            marker_id=marker_id,
+            detection_age_s=saved.detection_age_s,
+            reprojection_error_px=saved.reprojection_error_px,
+            camera_from_marker=saved.camera_from_marker.copy(),
+            base_from_marker=saved.base_from_marker.copy(),
+            marker_from_wrist=marker_wrist,
+            base_from_wrist=saved.base_from_marker @ marker_wrist,
+        )
+
+    def _validate_frame(
+        self, result: dict[str, object], age_s: float | None
+    ) -> float:
         if result.get("observed_at") is None or age_s is None:
             raise RuntimeError("no ArUco detection frame is available")
-        if age_s > self.config.max_detection_age_s:
+        try:
+            age = float(age_s)
+        except (TypeError, ValueError) as error:
+            raise RuntimeError("ArUco detection age is invalid") from error
+        if not np.isfinite(age) or age < 0:
+            raise RuntimeError("ArUco detection age is invalid")
+        if age > self.config.max_detection_age_s:
             raise RuntimeError(
-                f"ArUco detection is stale ({age_s:.3f} s; "
+                f"ArUco detection is stale ({age:.3f} s; "
                 f"limit {self.config.max_detection_age_s:.3f} s)"
             )
         if not result.get("calibration_valid"):
             raise RuntimeError("internal-camera metric calibration is invalid")
         if str(result.get("camera_serial_number")) != self.config.camera_serial_number:
             raise RuntimeError("camera identity does not match the targeting transform")
-        if marker is None:
-            raise RuntimeError(f"ArUco marker {marker_id} is not detected")
+        return age
+
+    def _validated_marker(
+        self, result: dict[str, object], marker: dict[str, object], age_s: float
+    ) -> SavedMarker:
         rvec, tvec = marker.get("rvec"), marker.get("tvec_m")
         reprojection_error = marker.get("reprojection_error_px")
         if rvec is None or tvec is None or reprojection_error is None:
@@ -218,62 +267,80 @@ class ArucoTargeting:
                 f"marker reprojection error is too high ({error_px:.3f} px; "
                 f"limit {self.config.max_reprojection_error_px:.3f} px)"
             )
-        selected_offset = offset or self.config.default_offset
         camera_marker = camera_from_marker(rvec, tvec)
-        base_marker, base_wrist = compose_target(
-            self.config.base_from_camera, camera_marker, selected_offset
-        )
-        return ResolvedArucoTarget(
+        try:
+            size_m = float(result["marker_length_mm"]) / 1000.0
+            marker_id = int(marker["id"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise RuntimeError("metric marker size or ID is invalid") from error
+        if not np.isfinite(size_m) or size_m <= 0:
+            raise RuntimeError("metric marker size or ID is invalid")
+        return SavedMarker(
             marker_id=marker_id,
+            size_m=size_m,
             detection_age_s=age_s,
             reprojection_error_px=error_px,
             camera_from_marker=camera_marker,
-            base_from_marker=base_marker,
-            marker_from_wrist=pose_transform(
-                selected_offset.xyz_m, selected_offset.rpy_deg
-            ),
-            base_from_wrist=base_wrist,
+            base_from_marker=self.config.base_from_camera @ camera_marker,
+            saved_at=time.monotonic(),
         )
 
+    def _saved_marker(self, marker_id: int) -> SavedMarker | None:
+        with self._saved_lock:
+            return self._saved_markers.get(marker_id)
+
+    def _save_first(self, marker: SavedMarker) -> SavedMarker:
+        with self._saved_lock:
+            return self._saved_markers.setdefault(marker.marker_id, marker)
+
     def visualized_markers(self) -> tuple[VisualizedMarker, ...]:
-        """Return only marker poses that pass the motion-quality gates."""
+        """Latch new valid markers and return all poses saved this session."""
         result = self.observations.latest()
         age_value = result.get("age_s")
-        marker_length_mm = result.get("marker_length_mm")
         try:
             age_s = float(age_value)
-            size_m = float(marker_length_mm) / 1000.0
         except (TypeError, ValueError):
-            return ()
-        if (
-            not np.isfinite((age_s, size_m)).all()
-            or age_s > self.config.max_detection_age_s
-            or size_m <= 0
-            or not result.get("calibration_valid")
-            or str(result.get("camera_serial_number")) != self.config.camera_serial_number
-        ):
-            return ()
-        markers: list[VisualizedMarker] = []
-        for item in result.get("markers", []):
-            try:
-                error_px = float(item["reprojection_error_px"])
-                if not np.isfinite(error_px) or error_px > self.config.max_reprojection_error_px:
-                    continue
-                camera_marker = camera_from_marker(item["rvec"], item["tvec_m"])
-                base_marker = self.config.base_from_camera @ camera_marker
-                markers.append(
-                    VisualizedMarker(
-                        int(item["id"]), size_m, age_s, error_px, base_marker
-                    )
-                )
-            except (KeyError, TypeError, ValueError):
-                continue
-        return tuple(markers)
+            age_s = float("nan")
+        try:
+            age_s = self._validate_frame(result, age_s)
+        except RuntimeError:
+            pass
+        else:
+            items = result.get("markers", [])
+            if isinstance(items, list):
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    try:
+                        marker_id = int(item["id"])
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                    if self._saved_marker(marker_id) is not None:
+                        continue
+                    try:
+                        self._save_first(self._validated_marker(result, item, age_s))
+                    except RuntimeError:
+                        continue
+        now = time.monotonic()
+        with self._saved_lock:
+            saved = tuple(self._saved_markers.values())
+        return tuple(
+            VisualizedMarker(
+                marker.marker_id,
+                marker.size_m,
+                marker.detection_age_s,
+                max(0.0, now - marker.saved_at),
+                marker.reprojection_error_px,
+                marker.base_from_marker.copy(),
+            )
+            for marker in saved
+        )
 
     @staticmethod
     def resolution_json(resolved: ResolvedArucoTarget) -> dict[str, object]:
         return {
             "marker_id": resolved.marker_id,
+            "marker_pose_source": "session_latch",
             "detection_age_s": round(resolved.detection_age_s, 4),
             "reprojection_error_px": round(resolved.reprojection_error_px, 4),
             "camera_marker": _pose_json(resolved.camera_from_marker),

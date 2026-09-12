@@ -78,6 +78,7 @@ class ArucoValidationTest(unittest.TestCase):
             "observed_at": "now",
             "calibration_valid": True,
             "camera_serial_number": "test-camera",
+            "marker_length_mm": 50.0,
         }
         self.marker = {
             "id": 3,
@@ -99,7 +100,20 @@ class ArucoValidationTest(unittest.TestCase):
         np.testing.assert_allclose(resolved.base_from_marker[:3, 3], (0.1, 0.2, 0.3))
         np.testing.assert_allclose(resolved.base_from_wrist[:3, 3], (0.1, 0.2, 0.38))
 
-    def test_visualization_uses_only_fresh_usable_markers(self):
+    def test_resolve_reuses_first_valid_pose_for_the_session(self):
+        resolver = self.resolver()
+        first = resolver.resolve(3)
+        resolver.observations.value = (
+            {**self.result, "observed_at": None},
+            {**self.marker, "tvec_m": [9, 9, 9]},
+            None,
+        )
+
+        second = resolver.resolve(3)
+
+        np.testing.assert_allclose(second.base_from_marker, first.base_from_marker)
+
+    def test_visualization_latches_first_fresh_usable_marker_pose(self):
         result = {
             **self.result,
             "age_s": 0.1,
@@ -114,7 +128,13 @@ class ArucoValidationTest(unittest.TestCase):
         self.assertEqual(markers[0].size_m, 0.05)
         np.testing.assert_allclose(markers[0].base_from_marker[:3, 3], (0.1, 0.2, 0.3))
         resolver.observations.value[0]["age_s"] = 0.6
-        self.assertEqual(resolver.visualized_markers(), ())
+        resolver.observations.value[0]["markers"][0] = {
+            **self.marker,
+            "tvec_m": [0.8, 0.9, 1.0],
+        }
+        saved = resolver.visualized_markers()
+        self.assertEqual([marker.marker_id for marker in saved], [3])
+        np.testing.assert_allclose(saved[0].base_from_marker[:3, 3], (0.1, 0.2, 0.3))
 
     def test_rejects_missing_stale_invalid_and_high_error_detection(self):
         cases = (

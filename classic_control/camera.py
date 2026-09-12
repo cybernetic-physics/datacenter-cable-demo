@@ -220,7 +220,7 @@ class CameraHub:
 
     def status(self) -> dict[str, object]:
         return {
-            "default": "internal",
+            "default": "stereo",
             "sources": {source_id: source.status() for source_id, source in self.sources.items()},
         }
 

@@ -19,7 +19,7 @@ class CameraUnavailable(RuntimeError):
 
 
 class CameraBusy(RuntimeError):
-    """Raised when another browser is already consuming a camera source."""
+    """Raised when an exclusive local camera is already streaming."""
 
 
 def multipart_jpeg(jpeg: bytes) -> bytes:
@@ -41,10 +41,8 @@ class TeleimagerCamera:
         self.host = host
         self.port = port
         self.resolution = resolution
-        self._stream_lock = threading.Lock()
         self._state_lock = threading.Lock()
-        self._stop_event = threading.Event()
-        self._streaming = False
+        self._stream_stops: set[threading.Event] = set()
         self._last_error: str | None = None
 
     def status(self) -> dict[str, object]:
@@ -57,7 +55,7 @@ class TeleimagerCamera:
             available = False
             error = f"Teleimager is not reachable at {self.host}:{self.port}"
         with self._state_lock:
-            streaming = self._streaming
+            streaming = bool(self._stream_stops)
             if self._last_error and not available:
                 error = self._last_error
         return {
@@ -75,10 +73,7 @@ class TeleimagerCamera:
 
     def jpeg_stream(self) -> Iterator[bytes]:
         """Return validated JPEG frames for browser or vision consumers."""
-        if not self._stream_lock.acquire(blocking=False):
-            raise CameraBusy(f"{self.name} is already streaming")
         if not self.status()["available"]:
-            self._stream_lock.release()
             raise CameraUnavailable(f"Teleimager is not reachable at {self.host}:{self.port}")
 
         context = zmq.Context()
@@ -89,16 +84,21 @@ class TeleimagerCamera:
         subscriber.setsockopt(zmq.RCVTIMEO, 250)
         subscriber.setsockopt(zmq.SUBSCRIBE, b"")
         subscriber.connect(f"tcp://{self.host}:{self.port}")
-        self._stop_event.clear()
+        stop_event = threading.Event()
         with self._state_lock:
-            self._streaming = True
+            self._stream_stops.add(stop_event)
             self._last_error = None
-        return self._read_jpegs(context, subscriber)
+        return self._read_jpegs(context, subscriber, stop_event)
 
-    def _read_jpegs(self, context: zmq.Context, subscriber: zmq.Socket) -> Iterator[bytes]:
+    def _read_jpegs(
+        self,
+        context: zmq.Context,
+        subscriber: zmq.Socket,
+        stop_event: threading.Event,
+    ) -> Iterator[bytes]:
         last_frame = time.monotonic()
         try:
-            while not self._stop_event.is_set():
+            while not stop_event.is_set():
                 try:
                     jpeg = subscriber.recv()
                 except zmq.Again:
@@ -115,8 +115,7 @@ class TeleimagerCamera:
             subscriber.close(linger=0)
             context.term()
             with self._state_lock:
-                self._streaming = False
-            self._stream_lock.release()
+                self._stream_stops.discard(stop_event)
 
     @staticmethod
     def _multipart_stream(frames: Iterator[bytes]) -> Iterator[bytes]:
@@ -129,7 +128,10 @@ class TeleimagerCamera:
                 close()
 
     def close(self) -> None:
-        self._stop_event.set()
+        with self._state_lock:
+            stops = list(self._stream_stops)
+        for stop_event in stops:
+            stop_event.set()
 
 
 class LocalMjpegCamera:

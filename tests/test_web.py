@@ -39,9 +39,12 @@ class StubCamera:
     def __init__(self): self.closed = False
     def close(self): self.closed = True
     def status(self):
-        return {"available": True, "streaming": False, "device": "/dev/test-camera",
-                "resolution": [1280, 720], "error": None}
-    def stream(self):
+        return {"default": "internal", "sources": {"internal": {
+            "name": "Internal camera", "available": True, "streaming": False,
+            "location": "test:55555", "resolution": [640, 480], "error": None,
+        }}}
+    def stream(self, source_id):
+        if source_id != "internal": raise KeyError(source_id)
         return iter([b"--frame\r\nContent-Type: image/jpeg\r\n\r\nJPEG\r\n"])
 
 
@@ -74,12 +77,13 @@ class WebTest(unittest.TestCase):
         self.assertEqual(self.client.delete("/api/grasps/test").status_code, 200)
 
     def test_camera_status_and_stream(self):
-        status = self.client.get("/api/camera").json()
-        self.assertTrue(status["available"])
-        response = self.client.get("/api/camera.mjpg")
+        status = self.client.get("/api/cameras").json()
+        self.assertTrue(status["sources"]["internal"]["available"])
+        response = self.client.get("/api/cameras/internal.mjpg")
         self.assertEqual(response.status_code, 200)
         self.assertIn("multipart/x-mixed-replace", response.headers["content-type"])
         self.assertIn(b"JPEG", response.content)
+        self.assertEqual(self.client.get("/api/cameras/missing.mjpg").status_code, 404)
 
     def test_websocket_streams_state_and_detaches(self):
         with self.client.websocket_connect(

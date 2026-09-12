@@ -27,7 +27,7 @@ To reuse the existing `g1-cartesian` environment instead, install only the missi
 
 ```bash
 conda activate g1-cartesian
-conda install -c conda-forge fastapi uvicorn pyyaml
+conda install -c conda-forge fastapi uvicorn pyyaml pyzmq
 
 export XR_TELEOPERATE_ROOT=/path/to/xr_teleoperate
 export ROBOT_NETWORK_INTERFACE=enP2p1s0
@@ -38,11 +38,37 @@ Run these commands from the repository root; the project itself does not need to
 
 Open <http://127.0.0.1:8000>. The server intentionally binds only to localhost and always connects to real hardware.
 
-The Robot view streams the G1's `AIRHUG 02` head camera at 1280×720. It uses
-the camera's native JPEG output through the system GStreamer installation, so
-it adds no Python or Conda dependency. Set `CLASSIC_CONTROL_CAMERA_DEVICE` to
-a V4L2 device or stable `/dev/v4l/by-id/...` path to override automatic camera
-discovery.
+The Robot view selects between the G1 PC2 D435i RGB feed, the taped side-by-side
+head stereo feed, and an explicitly labelled Thor AIRHUG fallback. The two
+robot-mounted feeds arrive as latest-value JPEG frames from Teleimager at
+`192.168.123.164`; set `TELEIMAGER_HOST` to override that address. The Thor
+fallback uses native JPEG through the system GStreamer installation; set
+`CLASSIC_CONTROL_CAMERA_DEVICE` to override its automatic AIRHUG discovery.
+
+### PC2 camera service
+
+The PC2 camera configuration is tracked in
+[`config/teleimager-pc2.yaml`](config/teleimager-pc2.yaml). It assigns the
+internal D435i RGB camera to port `55555` and the taped head stereo pair to
+port `55556`. Deploy it and start Teleimager on PC2 with:
+
+```bash
+scp config/teleimager-pc2.yaml unitree@192.168.123.164:/home/unitree/teleimager_pkg/cam_config_server.yaml
+ssh unitree@192.168.123.164 'cd /home/unitree/teleimager_pkg && ./imgsrv_ctl.sh start'
+```
+
+Check or stop it with:
+
+```bash
+ssh unitree@192.168.123.164 'cd /home/unitree/teleimager_pkg && ./imgsrv_ctl.sh status'
+ssh unitree@192.168.123.164 'cd /home/unitree/teleimager_pkg && ./imgsrv_ctl.sh stop'
+```
+
+Do not run `robonia-pc2-sensor-agent.service` and Teleimager together: both
+open the same cameras. The sensor agent is enabled on PC2 by default, so after
+a PC2 reboot stop it before starting Teleimager. Making that choice persistent
+requires disabling the sensor-agent service with `sudo systemctl disable
+robonia-pc2-sensor-agent.service` on PC2.
 
 `CLASSIC_CONTROL_GRASPS` may point to a different writable grasp YAML file. By default, the application uses [`config/grasps.yaml`](config/grasps.yaml).
 

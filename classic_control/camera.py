@@ -1,27 +1,123 @@
-"""Small GStreamer bridge from the G1 head camera to browser MJPEG."""
+"""Camera sources exposed as browser-compatible MJPEG streams."""
 
 from __future__ import annotations
 
 import os
 import shutil
+import socket
 import subprocess
 import threading
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
+import zmq
+
 
 class CameraUnavailable(RuntimeError):
-    """Raised when the configured head camera cannot be opened."""
+    """Raised when a camera source cannot be opened."""
 
 
 class CameraBusy(RuntimeError):
-    """Raised when another browser is already consuming the camera."""
+    """Raised when another browser is already consuming a camera source."""
 
 
-class HeadCamera:
-    """Expose the AIRHUG UVC camera without decoding its native JPEG frames."""
+class TeleimagerCamera:
+    """Turn Teleimager's latest-value JPEG ZMQ stream into multipart MJPEG."""
 
-    def __init__(self, device: str | None = None):
+    def __init__(self, name: str, host: str, port: int, resolution: tuple[int, int]):
+        self.name = name
+        self.host = host
+        self.port = port
+        self.resolution = resolution
+        self._stream_lock = threading.Lock()
+        self._state_lock = threading.Lock()
+        self._stop_event = threading.Event()
+        self._streaming = False
+        self._last_error: str | None = None
+
+    def status(self) -> dict[str, object]:
+        try:
+            connection = socket.create_connection((self.host, self.port), timeout=0.25)
+            connection.close()
+            available = True
+            error = None
+        except OSError:
+            available = False
+            error = f"Teleimager is not reachable at {self.host}:{self.port}"
+        with self._state_lock:
+            streaming = self._streaming
+            if self._last_error and not available:
+                error = self._last_error
+        return {
+            "name": self.name,
+            "available": available,
+            "streaming": streaming,
+            "location": f"{self.host}:{self.port}",
+            "resolution": list(self.resolution),
+            "error": error,
+        }
+
+    def stream(self) -> Iterator[bytes]:
+        if not self._stream_lock.acquire(blocking=False):
+            raise CameraBusy(f"{self.name} is already streaming")
+        if not self.status()["available"]:
+            self._stream_lock.release()
+            raise CameraUnavailable(f"Teleimager is not reachable at {self.host}:{self.port}")
+
+        context = zmq.Context()
+        subscriber = context.socket(zmq.SUB)
+        subscriber.setsockopt(zmq.CONFLATE, 1)
+        subscriber.setsockopt(zmq.RCVHWM, 1)
+        subscriber.setsockopt(zmq.LINGER, 0)
+        subscriber.setsockopt(zmq.RCVTIMEO, 250)
+        subscriber.setsockopt(zmq.SUBSCRIBE, b"")
+        subscriber.connect(f"tcp://{self.host}:{self.port}")
+        self._stop_event.clear()
+        with self._state_lock:
+            self._streaming = True
+            self._last_error = None
+        return self._read_stream(context, subscriber)
+
+    def _read_stream(self, context: zmq.Context, subscriber: zmq.Socket) -> Iterator[bytes]:
+        last_frame = time.monotonic()
+        try:
+            while not self._stop_event.is_set():
+                try:
+                    jpeg = subscriber.recv()
+                except zmq.Again:
+                    if time.monotonic() - last_frame < 3.0:
+                        continue
+                    with self._state_lock:
+                        self._last_error = f"No frames received from {self.host}:{self.port}"
+                    break
+                if not (jpeg.startswith(b"\xff\xd8") and jpeg.endswith(b"\xff\xd9")):
+                    continue
+                last_frame = time.monotonic()
+                yield (
+                    b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
+                    + str(len(jpeg)).encode()
+                    + b"\r\n\r\n"
+                    + jpeg
+                    + b"\r\n"
+                )
+        finally:
+            subscriber.close(linger=0)
+            context.term()
+            with self._state_lock:
+                self._streaming = False
+            self._stream_lock.release()
+
+    def close(self) -> None:
+        self._stop_event.set()
+
+
+class LocalMjpegCamera:
+    """Optional Thor-attached UVC fallback using native JPEG frames."""
+
+    def __init__(self, name: str = "Thor AIRHUG fallback", device: str | None = None):
+        self.name = name
+        self.resolution = (1280, 720)
         self._configured_device = device or os.environ.get("CLASSIC_CONTROL_CAMERA_DEVICE")
         self._stream_lock = threading.Lock()
         self._state_lock = threading.Lock()
@@ -31,20 +127,11 @@ class HeadCamera:
     def _device(self) -> Path | None:
         if self._configured_device:
             return Path(self._configured_device)
-
         by_id = Path("/dev/v4l/by-id")
         if by_id.is_dir():
             candidates = sorted(by_id.glob("*AIRHUG_02*-video-index0"))
             if candidates:
                 return candidates[0]
-
-        for entry in sorted(Path("/sys/class/video4linux").glob("video*")):
-            try:
-                if entry.joinpath("name").read_text().strip() == "AIRHUG 02: AIRHUG 02":
-                    if entry.joinpath("index").read_text().strip() == "0":
-                        return Path("/dev") / entry.name
-            except OSError:
-                continue
         return None
 
     def status(self) -> dict[str, object]:
@@ -56,41 +143,33 @@ class HeadCamera:
         if not gst:
             error = "gst-launch-1.0 is not installed"
         elif device is None or not device.exists():
-            error = "AIRHUG 02 head camera was not found"
+            error = "Thor AIRHUG camera was not found"
         return {
+            "name": self.name,
             "available": bool(gst and device is not None and device.exists()),
             "streaming": streaming,
-            "device": str(device) if device is not None else None,
-            "resolution": [1280, 720],
+            "location": str(device) if device is not None else None,
+            "resolution": list(self.resolution),
             "error": error,
         }
 
     def stream(self) -> Iterator[bytes]:
         if not self._stream_lock.acquire(blocking=False):
-            raise CameraBusy("the head camera is already streaming")
-
+            raise CameraBusy(f"{self.name} is already streaming")
         status = self.status()
         if not status["available"]:
             self._stream_lock.release()
             raise CameraUnavailable(str(status["error"]))
-
         command = [
-            "gst-launch-1.0", "-q",
-            "v4l2src", f"device={status['device']}",
+            "gst-launch-1.0", "-q", "v4l2src", f"device={status['location']}",
             "!", "image/jpeg,width=1280,height=720",
-            "!", "multipartmux", "boundary=frame",
-            "!", "fdsink", "fd=1",
+            "!", "multipartmux", "boundary=frame", "!", "fdsink", "fd=1",
         ]
         try:
-            process = subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
+            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         except (OSError, ValueError) as error:
             self._stream_lock.release()
-            raise CameraUnavailable(f"could not start the head camera: {error}") from error
-
+            raise CameraUnavailable(f"could not start Thor camera: {error}") from error
         with self._state_lock:
             self._process = process
             self._last_error = None
@@ -103,12 +182,8 @@ class HeadCamera:
                 yield chunk
             return_code = process.wait()
             if return_code != 0:
-                detail = ""
-                if process.stderr is not None:
-                    detail = process.stderr.read().decode(errors="replace").strip().splitlines()[-1:]
-                    detail = detail[0] if detail else ""
                 with self._state_lock:
-                    self._last_error = detail or f"camera stream exited with status {return_code}"
+                    self._last_error = f"Thor camera exited with status {return_code}"
         finally:
             self._stop_process(process)
             self._stream_lock.release()
@@ -130,3 +205,32 @@ class HeadCamera:
             process = self._process
         if process is not None:
             self._stop_process(process)
+
+
+class CameraHub:
+    """Named camera sources kept independent from robot control state."""
+
+    def __init__(self, sources: dict[str, object] | None = None):
+        host = os.environ.get("TELEIMAGER_HOST", "192.168.123.164")
+        self.sources = sources or {
+            "internal": TeleimagerCamera("Internal D435i RGB", host, 55555, (640, 480)),
+            "stereo": TeleimagerCamera("Taped head stereo", host, 55556, (1280, 480)),
+            "thor": LocalMjpegCamera(),
+        }
+
+    def status(self) -> dict[str, object]:
+        return {
+            "default": "internal",
+            "sources": {source_id: source.status() for source_id, source in self.sources.items()},
+        }
+
+    def stream(self, source_id: str) -> Iterator[bytes]:
+        try:
+            source = self.sources[source_id]
+        except KeyError as error:
+            raise KeyError(f"unknown camera source: {source_id}") from error
+        return source.stream()
+
+    def close(self) -> None:
+        for source in self.sources.values():
+            source.close()

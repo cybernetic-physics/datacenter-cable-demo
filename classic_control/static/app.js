@@ -32,14 +32,21 @@ async function startCamera() {
   message.classList.remove("hidden"); message.textContent = "Looking for the head camera…";
   setCameraStatus("Checking…");
   try {
-    const response = await fetch("/api/camera", {cache:"no-store"});
-    const state = await response.json();
-    if (!state.available) throw new Error(state.error || "Head camera is unavailable");
+    const response = await fetch("/api/cameras", {cache:"no-store"});
+    const catalog = await response.json(), select = $("#cameraSelect");
+    const previous = select.value || catalog.default; select.innerHTML = "";
+    for (const [id,state] of Object.entries(catalog.sources)) {
+      const option=document.createElement("option"); option.value=id;
+      option.textContent=`${state.name}${state.available ? "" : " · offline"}`; select.append(option);
+    }
+    select.value = catalog.sources[previous] ? previous : catalog.default;
+    const source = select.value, state = catalog.sources[source];
+    if (!state.available) throw new Error(state.error || `${state.name} is unavailable`);
     setCameraStatus("Starting…");
     image.onload = () => setCameraStatus("Live", "good");
     image.onerror = () => { image.classList.remove("visible"); message.classList.remove("hidden"); message.textContent = "Camera stream stopped"; setCameraStatus("Offline", "bad"); };
     image.classList.add("visible"); message.classList.add("hidden");
-    image.src = `/api/camera.mjpg?t=${Date.now()}`;
+    image.src = `/api/cameras/${encodeURIComponent(source)}.mjpg?t=${Date.now()}`;
   } catch (error) {
     message.textContent = error.message; setCameraStatus("Unavailable", "bad");
   }
@@ -125,6 +132,7 @@ async function initialize() {
   $("#applyGrasp").onclick = () => send({type:"grasp",name:$("#graspSelect").value,sides:[...($("#applyLeft").checked?["left"]:[]),...($("#applyRight").checked?["right"]:[])],duration_s:Number($("#handDuration").value)});
   $("#refreshGrasps").onclick = refreshGrasps;
   $("#retryCamera").onclick = startCamera;
+  $("#cameraSelect").onchange = startCamera;
   $("#saveGrasp").onsubmit = async event => { event.preventDefault(); const form=new FormData(event.target); const hands={}; if(form.get("left"))hands.left=staged("left"); if(form.get("right"))hands.right=staged("right"); const response=await fetch(`/api/grasps/${encodeURIComponent(form.get("name"))}`,{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({description:form.get("description"),hands})}); const body=await response.json(); if(!response.ok)return toast(body.detail); toast(`Saved ${body.saved}`); await refreshGrasps(); };
   $("#deleteGrasp").onclick = async () => { const name=$("#graspSelect").value; const response=await fetch(`/api/grasps/${encodeURIComponent(name)}`,{method:"DELETE"}); const body=await response.json(); if(!response.ok)return toast(body.detail); toast(`Deleted ${name}`); await refreshGrasps(); };
 }

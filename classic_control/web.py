@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .arm import ArmPlanner
-from .camera import CameraBusy, CameraUnavailable, HeadCamera
+from .camera import CameraBusy, CameraHub, CameraUnavailable
 from .config import grasp_file, xr_teleoperate_root
 from .grasps import DEX3_LIMITS, JOINT_NAMES, Grasp, GraspStore
 from .hardware import UnitreeRobotBackend
@@ -63,11 +63,11 @@ def _real_service() -> ControlService:
     return ControlService(UnitreeRobotBackend(root), ArmPlanner(root), GraspStore(grasp_file()))
 
 
-def create_app(control: ControlService | None = None, camera: HeadCamera | None = None) -> FastAPI:
+def create_app(control: ControlService | None = None, camera: CameraHub | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.control = control or _real_service()
-        app.state.camera = camera or HeadCamera()
+        app.state.camera = camera or CameraHub()
         await asyncio.to_thread(app.state.control.start)
         try:
             yield
@@ -97,14 +97,16 @@ def create_app(control: ControlService | None = None, camera: HeadCamera | None 
     async def ui_config():
         return {"joint_names": JOINT_NAMES, "dex3_limits": DEX3_LIMITS}
 
-    @app.get("/api/camera")
+    @app.get("/api/cameras")
     async def camera_status():
         return await asyncio.to_thread(app.state.camera.status)
 
-    @app.get("/api/camera.mjpg")
-    def camera_stream():
+    @app.get("/api/cameras/{source_id}.mjpg")
+    def camera_stream(source_id: str):
         try:
-            stream = app.state.camera.stream()
+            stream = app.state.camera.stream(source_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
         except CameraBusy as error:
             raise HTTPException(409, str(error)) from error
         except CameraUnavailable as error:

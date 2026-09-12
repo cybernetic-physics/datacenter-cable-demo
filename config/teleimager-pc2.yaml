@@ -1,0 +1,47 @@
+# Teleimager has three fixed role names. The external stereo pair uses the
+# left_wrist_camera transport slot even though it is mounted on the head.
+webrtc:
+  bitrate: {min: 2000000, default: 5000000, max: 12000000}
+  gop_length: 60
+
+head_camera:
+  enable_zmq: true
+  zmq_port: 55555
+  enable_webrtc: false
+  webrtc_port: 60001
+  webrtc_codec: h264
+  type: realsense
+  image_shape: [480, 640]
+  binocular: false
+  fps: 30
+  video_id: null
+  serial_number: "254322072098"
+  physical_path: null
+
+left_wrist_camera:
+  enable_zmq: true
+  zmq_port: 55556
+  enable_webrtc: false
+  webrtc_port: 60002
+  webrtc_codec: h264
+  type: opencv
+  image_shape: [480, 1280]
+  binocular: true
+  fps: 30
+  video_id: null
+  serial_number: null
+  physical_path: /sys/devices/platform/3610000.xhci/usb1/1-2/1-2.2/1-2.2:1.0
+
+right_wrist_camera:
+  enable_zmq: false
+  zmq_port: 55557
+  enable_webrtc: false
+  webrtc_port: 60003
+  webrtc_codec: h264
+  type: opencv
+  image_shape: [480, 640]
+  binocular: false
+  fps: 30
+  video_id: null
+  serial_number: null
+  physical_path: null

@@ -38,9 +38,8 @@ Run these commands from the repository root; the project itself does not need to
 
 Open <http://127.0.0.1:8000>. The server intentionally binds only to localhost and always connects to real hardware.
 
-The Robot view defaults to the taped side-by-side head stereo feed and also
-offers the G1 PC2 D435i RGB feed and an explicitly labelled Thor AIRHUG
-fallback. The two
+The Robot view defaults to the G1 PC2 D435i RGB feed and also offers the taped
+side-by-side head stereo feed and an explicitly labelled Thor AIRHUG fallback. The two
 robot-mounted feeds arrive as latest-value JPEG frames from Teleimager at
 `192.168.123.164`; set `TELEIMAGER_HOST` to override that address. The Thor
 fallback uses native JPEG through the system GStreamer installation; set

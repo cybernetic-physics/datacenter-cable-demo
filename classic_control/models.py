@@ -35,3 +35,17 @@ class PoseTarget:
             raise ValueError("pose target values must be finite")
         if not 0.05 <= self.duration_s <= 60.0:
             raise ValueError("duration_s must be in [0.05, 60]")
+
+
+@dataclass(frozen=True)
+class MarkerOffset:
+    """Wrist pose relative to an observed marker frame."""
+
+    xyz_m: tuple[float, float, float]
+    rpy_deg: tuple[float, float, float]
+
+    def validate(self) -> None:
+        if not np.all(np.isfinite((*self.xyz_m, *self.rpy_deg))):
+            raise ValueError("ArUco offset values must be finite")
+        if np.linalg.norm(self.xyz_m) > 0.5:
+            raise ValueError("ArUco offset must be within 0.5 m of the marker")

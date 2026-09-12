@@ -20,6 +20,7 @@ class StubControl:
         self.grasps = store
         self.owner = None
         self.detached = False
+        self.aruco_commands = []
 
     def start(self): pass
     def close(self): pass
@@ -29,6 +30,7 @@ class StubControl:
     def detach(self, owner): self.detached = True; self.owner = None
     def stop_motion(self, owner): pass
     def release_control(self, owner): pass
+    def command_aruco(self, *args): self.aruco_commands.append(args)
     def telemetry(self):
         return {"connected": True, "owner": self.owner is not None,
                 "acquired": False, "active_command": None, "fault": None,
@@ -119,6 +121,7 @@ class WebTest(unittest.TestCase):
     def test_aruco_config_detections_and_stream(self):
         config = self.client.get("/api/aruco/config").json()
         self.assertEqual(config["dictionary"], "DICT_4X4_50")
+        self.assertEqual(config["targeting"]["default_offset"]["xyz_m"], [0.0, 0.0, 0.08])
         response = self.client.put(
             "/api/aruco/config",
             json={"dictionary": "DICT_5X5_100", "marker_length_mm": 42.0},
@@ -147,6 +150,22 @@ class WebTest(unittest.TestCase):
         while not self.control.detached and time.monotonic() < deadline:
             time.sleep(0.01)
         self.assertTrue(self.control.detached)
+
+    def test_websocket_accepts_aruco_pose(self):
+        with self.client.websocket_connect(
+            "/api/control", headers={"origin": "http://127.0.0.1", "host": "127.0.0.1"}
+        ) as socket:
+            socket.receive_json()
+            socket.send_json({
+                "type": "aruco_pose",
+                "side": "right",
+                "marker_id": 3,
+                "duration_s": 3.0,
+            })
+            deadline = time.monotonic() + 1.0
+            while not self.control.aruco_commands and time.monotonic() < deadline:
+                socket.receive_json()
+        self.assertEqual(self.control.aruco_commands[0][1:4], ("right", 3, None))
 
 
 if __name__ == "__main__":

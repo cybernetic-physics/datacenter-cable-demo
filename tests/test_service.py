@@ -5,7 +5,9 @@ from types import SimpleNamespace
 import numpy as np
 
 from classic_control.arm import NORMAL_ARM_Q, ArmWaypoint
+from classic_control.aruco_targeting import ResolvedArucoTarget
 from classic_control.hardware import RobotState
+from classic_control.models import MarkerOffset
 from classic_control.service import ControlService
 
 OPEN = {
@@ -54,6 +56,21 @@ class FakeGrasps:
     def load(self): return {}
 
 
+class FakeArucoTargeting:
+    def __init__(self):
+        self.config = SimpleNamespace(max_waist_error_rad=0.035)
+        self.offset = None
+
+    def resolve(self, marker_id, offset):
+        self.offset = offset
+        wrist = np.eye(4); wrist[:3, 3] = (0.25, -0.20, 0.35)
+        return ResolvedArucoTarget(marker_id, 0.1, 0.2, np.eye(4), np.eye(4), np.eye(4), wrist)
+
+    @staticmethod
+    def resolution_json(resolved):
+        return {"marker_id": resolved.marker_id}
+
+
 def wait_idle(service, timeout=1):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -96,6 +113,27 @@ class ServiceTest(unittest.TestCase):
 
     def test_second_browser_is_rejected(self):
         self.assertFalse(self.service.attach("other"))
+
+    def test_aruco_command_routes_through_absolute_pose(self):
+        targeting = FakeArucoTargeting()
+        self.service.aruco_targeting = targeting
+        captured = []
+        self.service.command_pose = lambda owner, target: captured.append((owner, target))
+        offset = MarkerOffset((0, 0, 0.1), (0, 0, 0))
+
+        self.service.command_aruco("owner", "right", 3, offset, 2.0, "down")
+
+        self.assertEqual(captured[0][0], "owner")
+        self.assertEqual(captured[0][1].xyz, (0.25, -0.2, 0.35))
+        self.assertEqual(captured[0][1].side.value, "right")
+        self.assertIs(targeting.offset, offset)
+        self.assertEqual(self.service.telemetry()["aruco_target"]["marker_id"], 3)
+
+    def test_aruco_command_requires_neutral_waist(self):
+        self.service.aruco_targeting = FakeArucoTargeting()
+        self.backend.q[12] = 0.04
+        with self.assertRaisesRegex(RuntimeError, "neutral waist"):
+            self.service.command_aruco("owner", "right", 3, None, 2.0, "auto")
 
 
 if __name__ == "__main__":

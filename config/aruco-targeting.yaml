@@ -1,0 +1,25 @@
+version: 1
+aruco_targeting:
+  camera_serial_number: "254322072098"
+
+  # G1 pelvis <- D435i RGB optical frame with the waist at zero. This composes
+  # the pinned G1 URDF pelvis/torso/D435 mount with the standard ROS camera-link
+  # <- OpenCV optical-axis rotation (x right, y down, z forward).
+  base_from_internal_camera:
+    source: g1_body29_hand14.urdf neutral waist + ROS optical-axis convention
+    matrix:
+      - [0.0, -0.738455340626, 0.674302387584, 0.05366]
+      - [-1.0, 0.0, 0.0, 0.01753]
+      - [0.0, -0.674302387584, -0.738455340626, 0.47387]
+      - [0.0, 0.0, 0.0, 1.0]
+
+  # Positive marker Z is the normal facing the observing camera for the marker
+  # convention used by aruco.py. Eight centimetres therefore stops the wrist on
+  # the camera side of the marker plane. Orientation is marker-relative too.
+  default_offset:
+    xyz_m: [0.0, 0.0, 0.08]
+    rpy_deg: [0.0, 0.0, 0.0]
+
+  max_detection_age_s: 0.5
+  max_reprojection_error_px: 2.0
+  max_waist_error_rad: 0.035

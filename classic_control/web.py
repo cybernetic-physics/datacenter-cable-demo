@@ -16,11 +16,12 @@ from pydantic import BaseModel, Field
 
 from .arm import ArmPlanner
 from .aruco import ArucoVision
+from .aruco_targeting import ArucoTargeting
 from .camera import CameraBusy, CameraHub, CameraUnavailable
 from .config import grasp_file, xr_teleoperate_root
 from .grasps import DEX3_LIMITS, JOINT_NAMES, Grasp, GraspStore
 from .hardware import UnitreeRobotBackend
-from .models import ArmSide, ElbowBias, PoseTarget
+from .models import ArmSide, ElbowBias, MarkerOffset, PoseTarget
 from .service import ControlService
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -64,9 +65,24 @@ class ArucoConfigBody(BaseModel):
     marker_length_mm: float | None = Field(default=None, gt=0, le=1000)
 
 
-def _real_service() -> ControlService:
+class ArucoOffsetBody(BaseModel):
+    xyz_m: tuple[float, float, float]
+    rpy_deg: tuple[float, float, float]
+
+
+class ArucoPoseMessage(BaseModel):
+    side: ArmSide
+    marker_id: int = Field(ge=0)
+    offset: ArucoOffsetBody | None = None
+    duration_s: float = Field(default=3.0, ge=0.05, le=60.0)
+    elbow: ElbowBias = ElbowBias.AUTO
+
+
+def _real_service(targeting: ArucoTargeting) -> ControlService:
     root = xr_teleoperate_root()
-    return ControlService(UnitreeRobotBackend(root), ArmPlanner(root), GraspStore(grasp_file()))
+    return ControlService(
+        UnitreeRobotBackend(root), ArmPlanner(root), GraspStore(grasp_file()), targeting
+    )
 
 
 def create_app(
@@ -76,9 +92,10 @@ def create_app(
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        app.state.control = control or _real_service()
         app.state.camera = camera or CameraHub()
         app.state.aruco = aruco or ArucoVision(app.state.camera)
+        app.state.aruco_targeting = ArucoTargeting(app.state.aruco)
+        app.state.control = control or _real_service(app.state.aruco_targeting)
         await asyncio.to_thread(app.state.control.start)
         try:
             yield
@@ -130,14 +147,18 @@ def create_app(
 
     @app.get("/api/aruco/config")
     async def aruco_config():
-        return await asyncio.to_thread(app.state.aruco.configuration)
+        result = await asyncio.to_thread(app.state.aruco.configuration)
+        result["targeting"] = app.state.aruco_targeting.configuration()
+        return result
 
     @app.put("/api/aruco/config")
     async def update_aruco_config(body: ArucoConfigBody):
         try:
-            return await asyncio.to_thread(
+            result = await asyncio.to_thread(
                 app.state.aruco.configure, body.dictionary, body.marker_length_mm
             )
+            result["targeting"] = app.state.aruco_targeting.configuration()
+            return result
         except ValueError as error:
             raise HTTPException(422, str(error)) from error
 
@@ -232,6 +253,22 @@ def create_app(
                         target = PoseTarget(message.side, message.xyz, message.rpy_deg,
                                             message.duration_s, message.elbow)
                         task = asyncio.create_task(run_command(service.command_pose, owner, target))
+                    elif message_type == "aruco_pose":
+                        message = ArucoPoseMessage(**payload)
+                        offset = None if message.offset is None else MarkerOffset(
+                            message.offset.xyz_m, message.offset.rpy_deg
+                        )
+                        arguments = (
+                            owner,
+                            message.side.value,
+                            message.marker_id,
+                            offset,
+                            message.duration_s,
+                            message.elbow.value,
+                        )
+                        task = asyncio.create_task(
+                            run_command(service.command_aruco, *arguments)
+                        )
                     elif message_type == "normal":
                         duration = float(payload.get("duration_s", 20.0))
                         task = asyncio.create_task(run_command(service.command_normal, owner, duration))

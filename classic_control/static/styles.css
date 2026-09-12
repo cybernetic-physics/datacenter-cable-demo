@@ -18,6 +18,9 @@ main { max-width:1280px; margin:auto; padding:24px; display:grid; gap:18px; }
 .aruco-controls .toggle { display:flex; align-items:center; gap:8px; padding:9px 0; }
 .aruco-controls .toggle input { width:auto; }
 .detection-readout { min-height:20px; margin:12px 0 0; white-space:pre-wrap; font:12px ui-monospace,SFMono-Regular,monospace; }
+.aruco-target { margin-top:16px; padding:16px; border:1px solid var(--line); border-radius:10px; background:#0e1319; }
+.compact-heading { margin-bottom:12px; }
+.compact-heading h3 { margin-bottom:0; }
 button,input,select { font:inherit; color:var(--text); background:#0c1117; border:1px solid #34404e; border-radius:7px; padding:9px 11px; }
 button { cursor:pointer; } button:hover { border-color:#607086; } button:disabled { cursor:not-allowed; opacity:.42; }
 button.primary { color:#07120e; background:var(--accent); border-color:var(--accent); font-weight:750; }

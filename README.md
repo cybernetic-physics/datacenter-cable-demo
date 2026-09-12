@@ -53,7 +53,24 @@ poses use the factory intrinsics tracked in
 [`config/camera-calibrations.yaml`](config/camera-calibrations.yaml) and are
 disabled if the active Teleimager serial or stream profile does not match.
 Reported coordinates follow OpenCV's camera convention: +X right, +Y down, and
-+Z forward. They are not yet transformed into the G1 base frame.
++Z forward.
+
+With metric detection enabled, **Move to ArUco** resolves the selected marker
+into the neutral-waist G1 pelvis frame and sends the resulting wrist pose
+through the same checked absolute IK path as a manually entered target. The
+default marker-relative offset is 8 cm along the marker normal toward the
+camera; XYZ and RPY offsets are editable in the UI. The resolved pelvis-frame
+marker pose and final wrist target remain visible below the controls.
+
+The camera extrinsic, default offset, freshness/reprojection limits, and
+neutral-waist tolerance are tracked in
+[`config/aruco-targeting.yaml`](config/aruco-targeting.yaml). The current
+extrinsic composes the pinned G1 URDF mount at zero waist with the standard
+OpenCV optical-axis convention. ArUco motion is rejected if the waist is not
+neutral, the camera identity/profile is wrong, metric pose is unavailable, the
+selected marker is absent or older than 0.5 seconds, or reprojection error is
+over 2 pixels. Keep the rack clear and validate the configured transform with
+a slow, supported-arm test before approaching hardware.
 
 ### PC2 camera service
 
@@ -108,6 +125,7 @@ The package is split by responsibility:
 - `service.py` serializes commands and implements stop/hold, release, and fault behavior.
 - `camera.py` independently bridges camera frames to browser MJPEG streams.
 - `aruco.py` detects markers and estimates optional internal-camera poses.
+- `aruco_targeting.py` validates metric observations and composes marker-relative wrist targets.
 - `web.py` and `static/` implement the local API and interface.
 
 Run the hardware-free suite from the activated Conda environment with:

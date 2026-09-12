@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,6 +32,7 @@ class ArucoVision:
         self._marker_length_mm: float | None = None
         self._active = False
         self._latest = self._empty_result()
+        self._latest_monotonic: float | None = None
 
     @staticmethod
     def _load_calibration(path: Path) -> dict[str, object]:
@@ -62,6 +64,7 @@ class ArucoVision:
             self._dictionary = dictionary
             self._marker_length_mm = marker_length_mm
             self._latest = self._empty_result(dictionary, marker_length_mm)
+            self._latest_monotonic = None
         return self.configuration()
 
     def configuration(self) -> dict[str, object]:
@@ -80,7 +83,24 @@ class ArucoVision:
 
     def latest(self) -> dict[str, object]:
         with self._lock:
-            return dict(self._latest)
+            result = dict(self._latest)
+            observed = self._latest_monotonic
+        result["age_s"] = None if observed is None else max(0.0, time.monotonic() - observed)
+        return result
+
+    def marker_observation(
+        self, marker_id: int
+    ) -> tuple[dict[str, object], dict[str, object] | None, float | None]:
+        """Return one marker and its local receive age from the latest frame."""
+        with self._lock:
+            result = dict(self._latest)
+            marker = next(
+                (dict(item) for item in self._latest["markers"] if item["id"] == marker_id),
+                None,
+            )
+            observed = self._latest_monotonic
+        age_s = None if observed is None else max(0.0, time.monotonic() - observed)
+        return result, marker, age_s
 
     def annotated_stream(self) -> Iterator[bytes]:
         frames = self.camera.jpeg_stream("internal")
@@ -107,6 +127,7 @@ class ArucoVision:
         with self._lock:
             self._active = True
             self._latest = self._empty_result(dictionary_name, marker_length_mm, calibration_valid)
+            self._latest_monotonic = None
         try:
             for jpeg in frames:
                 image = cv2.imdecode(np.frombuffer(jpeg, dtype=np.uint8), cv2.IMREAD_COLOR)
@@ -124,6 +145,7 @@ class ArucoVision:
                 result = {
                     "observed_at": observed_at,
                     "frame_size": [int(image.shape[1]), int(image.shape[0])],
+                    "camera_serial_number": str(self.calibration["serial_number"]),
                     "dictionary": dictionary_name,
                     "marker_length_mm": marker_length_mm,
                     "calibration_valid": frame_calibration_valid,
@@ -132,6 +154,7 @@ class ArucoVision:
                 }
                 with self._lock:
                     self._latest = result
+                    self._latest_monotonic = time.monotonic()
                 ok, annotated = cv2.imencode(
                     ".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 85]
                 )
@@ -229,6 +252,7 @@ class ArucoVision:
         return {
             "observed_at": None,
             "frame_size": None,
+            "camera_serial_number": None,
             "dictionary": dictionary,
             "marker_length_mm": marker_length_mm,
             "calibration_valid": calibration_valid,

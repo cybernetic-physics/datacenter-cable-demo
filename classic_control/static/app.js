@@ -42,6 +42,9 @@ async function loadArucoConfig() {
   }
   select.value=config.dictionary;
   $("#arucoMarkerSize").value=config.marker_length_mm ?? "";
+  const offset=config.targeting.default_offset, form=$("#arucoTargetForm");
+  ["x","y","z"].forEach((name,index)=>form.elements[name].value=offset.xyz_m[index]);
+  ["roll","pitch","yaw"].forEach((name,index)=>form.elements[name].value=offset.rpy_deg[index]);
   if (!config.calibration.valid) $("#arucoDetections").textContent=`Metric pose unavailable: ${config.calibration.error}`;
 }
 
@@ -109,6 +112,13 @@ function renderState(state) {
   $("#mode").textContent = state.acquired ? "Debug control" : "Read only";
   $("#activeCommand").textContent = state.active_command || "Idle";
   $("#fault").textContent = state.fault || ""; $("#fault").classList.toggle("hidden", !state.fault);
+  if (state.aruco_target) {
+    const target=state.aruco_target;
+    $("#arucoTargetDebug").textContent=
+      `Marker ${target.marker_id} in pelvis\n${poseText(target.base_marker)}\n`+
+      `Final wrist target\n${poseText(target.base_wrist_target)}\n`+
+      `Age ${n(target.detection_age_s,3)} s · reprojection ${n(target.reprojection_error_px,2)} px`;
+  }
   if (state.arms) {
     $("#leftPose").textContent = poseText(state.arms.left.measured);
     $("#rightPose").textContent = poseText(state.arms.right.measured);
@@ -177,6 +187,22 @@ async function initialize() {
   $$("[data-axis]").forEach(button => button.onclick = event => jog(Number(button.dataset.axis),Number(button.dataset.sign),event.shiftKey));
   $$("[data-apply-hand]").forEach(button => button.onclick = () => { const side=button.dataset.applyHand; send({type:"hand",targets:{[side]:staged(side)},duration_s:Number($("#handDuration").value)}); });
   $("#poseForm").onsubmit = event => { event.preventDefault(); const form=new FormData(event.target); send({type:"pose",side:selectedArm(),xyz:["x","y","z"].map(k=>Number(form.get(k))),rpy_deg:["roll","pitch","yaw"].map(k=>Number(form.get(k))),duration_s:Number(form.get("duration")),elbow:form.get("elbow")}); };
+  $("#arucoTargetForm").onsubmit = event => {
+    event.preventDefault();
+    const form=new FormData(event.target);
+    if (!arucoMode()) return toast("Enable internal-camera ArUco detection first");
+    send({
+      type:"aruco_pose",
+      side:form.get("side"),
+      marker_id:Number(form.get("marker_id")),
+      offset:{
+        xyz_m:["x","y","z"].map(key=>Number(form.get(key))),
+        rpy_deg:["roll","pitch","yaw"].map(key=>Number(form.get(key))),
+      },
+      duration_s:Number(form.get("duration")),
+      elbow:form.get("elbow"),
+    });
+  };
   $("#copyPose").onclick = () => { if (!telemetry?.arms) return; const pose=telemetry.arms[selectedArm()].measured; const form=$("#poseForm"); ["x","y","z"].forEach((k,i)=>form.elements[k].value=pose.xyz[i]); ["roll","pitch","yaw"].forEach((k,i)=>form.elements[k].value=pose.rpy_deg[i]); };
   $("#graspSelect").onchange = event => { const grasp=grasps[event.target.value]; $("#graspDescription").textContent=grasp?.description||""; };
   $("#loadGrasp").onclick = () => { const grasp=grasps[$("#graspSelect").value]; if (!grasp) return; for (const side of ["left","right"]) loadHand(side,grasp.hands[side]); };

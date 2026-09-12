@@ -17,18 +17,26 @@ from .arm import (
     rotation_from_rpy_degrees,
     rpy_degrees_from_rotation,
 )
+from .aruco_targeting import ArucoTargeting
 from .grasps import JOINT_NAMES, GraspStore, validate_hand
 from .hardware import RobotBackend
-from .models import ArmSide, ElbowBias, PoseTarget
+from .models import ArmSide, ElbowBias, MarkerOffset, PoseTarget
 
 NORMAL_SPEED_RAD_S = 0.08
 
 
 class ControlService:
-    def __init__(self, backend: RobotBackend, planner: ArmPlanner, grasps: GraspStore):
+    def __init__(
+        self,
+        backend: RobotBackend,
+        planner: ArmPlanner,
+        grasps: GraspStore,
+        aruco_targeting: ArucoTargeting | None = None,
+    ):
         self.backend = backend
         self.planner = planner
         self.grasps = grasps
+        self.aruco_targeting = aruco_targeting
         self._lock = threading.RLock()
         self._planner_lock = threading.Lock()
         self._command_lock = threading.Lock()
@@ -40,6 +48,7 @@ class ControlService:
         self._left_target: np.ndarray | None = None
         self._right_target: np.ndarray | None = None
         self._hand_targets: dict[str, dict[str, float] | None] = {"left": None, "right": None}
+        self._last_aruco_target: dict[str, object] | None = None
 
     def start(self) -> None:
         self.backend.connect()
@@ -205,6 +214,42 @@ class ControlService:
                 return
             self._run_arm_plan(owner, f"{target.side.value}-absolute", plan)
 
+    def command_aruco(
+        self,
+        owner: str,
+        side: str,
+        marker_id: int,
+        offset: MarkerOffset | None,
+        duration_s: float,
+        elbow: str,
+    ) -> None:
+        """Resolve a fresh marker observation, then use the absolute-pose IK path."""
+        self._require_motion_authority(owner)
+        if self.aruco_targeting is None:
+            raise RuntimeError("ArUco targeting is not configured")
+        state = self.backend.state()
+        waist = np.asarray(state.body_q[12:15], dtype=float)
+        waist_limit = self.aruco_targeting.config.max_waist_error_rad
+        if waist.shape != (3,) or not np.all(np.isfinite(waist)):
+            raise RuntimeError("waist state is invalid")
+        if float(np.max(np.abs(waist))) > waist_limit:
+            raise RuntimeError(
+                "ArUco targeting requires a neutral waist; use Normal pose first "
+                f"(limit {waist_limit:.3f} rad)"
+            )
+        resolved = self.aruco_targeting.resolve(marker_id, offset)
+        with self._lock:
+            self._last_aruco_target = self.aruco_targeting.resolution_json(resolved)
+        wrist = resolved.base_from_wrist
+        target = PoseTarget(
+            ArmSide(side),
+            tuple(float(value) for value in wrist[:3, 3]),
+            tuple(float(value) for value in rpy_degrees_from_rotation(wrist[:3, :3])),
+            duration_s,
+            ElbowBias(elbow),
+        )
+        self.command_pose(owner, target)
+
     def _run_arm_plan(self, owner: str, label: str, plan) -> None:
         def runner(cancel: threading.Event) -> None:
             period = plan.duration_s / len(plan.waypoints)
@@ -324,6 +369,7 @@ class ControlService:
                 self._fault = None
                 self._left_target = self._right_target = None
                 self._hand_targets = {"left": None, "right": None}
+                self._last_aruco_target = None
 
     @staticmethod
     def _pose_json(transform: np.ndarray) -> dict[str, list[float]]:
@@ -367,4 +413,5 @@ class ControlService:
                     "waist_q": np.round(state.body_q[12:15], 5).tolist(),
                 },
                 "hands": None if state is None else state.hands,
+                "aruco_target": self._last_aruco_target,
             }

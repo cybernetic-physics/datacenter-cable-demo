@@ -37,6 +37,9 @@ class StubObservations:
     def marker_observation(self, marker_id):
         return self.value
 
+    def latest(self):
+        return self.value[0]
+
 
 class ArucoTransformTest(unittest.TestCase):
     def test_camera_to_base_composition(self):
@@ -95,6 +98,23 @@ class ArucoValidationTest(unittest.TestCase):
         resolved = self.resolver().resolve(3)
         np.testing.assert_allclose(resolved.base_from_marker[:3, 3], (0.1, 0.2, 0.3))
         np.testing.assert_allclose(resolved.base_from_wrist[:3, 3], (0.1, 0.2, 0.38))
+
+    def test_visualization_uses_only_fresh_usable_markers(self):
+        result = {
+            **self.result,
+            "age_s": 0.1,
+            "marker_length_mm": 50.0,
+            "markers": [self.marker, {**self.marker, "id": 4, "reprojection_error_px": 2.1}],
+        }
+        resolver = self.resolver(result=result)
+
+        markers = resolver.visualized_markers()
+
+        self.assertEqual([marker.marker_id for marker in markers], [3])
+        self.assertEqual(markers[0].size_m, 0.05)
+        np.testing.assert_allclose(markers[0].base_from_marker[:3, 3], (0.1, 0.2, 0.3))
+        resolver.observations.value[0]["age_s"] = 0.6
+        self.assertEqual(resolver.visualized_markers(), ())
 
     def test_rejects_missing_stale_invalid_and_high_error_detection(self):
         cases = (

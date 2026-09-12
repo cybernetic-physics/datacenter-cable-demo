@@ -5,6 +5,7 @@ let telemetry = null;
 let uiConfig = null;
 let grasps = {};
 let arucoTimer = null;
+let simulationTimer = null;
 const handTouched = {left:false, right:false};
 
 function toast(message) {
@@ -31,6 +32,33 @@ function arucoMode() { return $("#arucoEnabled").checked && $("#cameraSelect").v
 
 function setArucoStatus(text, kind="") {
   const status = $("#arucoStatus"); status.textContent = text; status.className = `pill ${kind}`;
+}
+
+function setSimulationStatus(text, kind="") {
+  const status=$("#simulationStatus"); status.textContent=text; status.className=`pill ${kind}`;
+}
+
+function stopSimulationPolling() { clearInterval(simulationTimer); simulationTimer=null; }
+
+async function startSimulation() {
+  stopSimulationPolling();
+  const image=$("#simulationView"), message=$("#simulationMessage");
+  image.removeAttribute("src"); image.classList.remove("visible");
+  message.classList.remove("hidden"); message.textContent="Starting MuJoCo…";
+  setSimulationStatus("Starting…");
+  image.onload=()=>{ image.classList.add("visible"); message.classList.add("hidden"); setSimulationStatus("Live","good"); };
+  image.onerror=()=>{ image.classList.remove("visible"); message.classList.remove("hidden"); };
+  image.src=`/api/simulation.mjpg?t=${Date.now()}`;
+  const update=async()=>{
+    try {
+      const response=await fetch("/api/simulation/status",{cache:"no-store"});
+      const state=await response.json();
+      if (state.state==="live") setSimulationStatus("Live","good");
+      else if (state.state==="error") { setSimulationStatus("Unavailable","bad"); message.textContent=state.error||"MuJoCo failed to start"; image.classList.remove("visible"); message.classList.remove("hidden"); stopSimulationPolling(); }
+      else setSimulationStatus(state.state);
+    } catch (_) { setSimulationStatus("Unavailable","bad"); }
+  };
+  update(); simulationTimer=setInterval(update,750);
 }
 
 async function loadArucoConfig() {
@@ -178,6 +206,7 @@ async function initialize() {
   buildHand("left"); buildHand("right"); await refreshGrasps(); connect(); updateMotionButtons();
   await loadArucoConfig();
   startCamera();
+  startSimulation();
   $("#jogMode").onchange = event => {
     const rotation=event.target.value==="rotation", input=$("#jogStep");
     $("#jogStepLabel").textContent=rotation?"Step (°)":"Step (m)";
@@ -211,6 +240,7 @@ async function initialize() {
   $("#applyGrasp").onclick = () => send({type:"grasp",name:$("#graspSelect").value,sides:[...($("#applyLeft").checked?["left"]:[]),...($("#applyRight").checked?["right"]:[])],duration_s:Number($("#handDuration").value)});
   $("#refreshGrasps").onclick = refreshGrasps;
   $("#retryCamera").onclick = startCamera;
+  $("#retrySimulation").onclick = async () => { await fetch("/api/simulation/retry",{method:"POST"}); startSimulation(); };
   $("#cameraSelect").onchange = () => { if ($("#cameraSelect").value !== "internal") { $("#arucoEnabled").checked=false; stopArucoPolling(); setArucoStatus("Off"); } startCamera(); };
   $("#arucoEnabled").onchange = async event => {
     try {
@@ -230,5 +260,5 @@ document.addEventListener("keydown", event => {
   if (event.repeat || event.target.matches("input,select,textarea")) return;
   const keys={w:[0,1],s:[0,-1],a:[1,1],d:[1,-1],r:[2,1],f:[2,-1]}; const command=keys[event.key.toLowerCase()]; if(command){event.preventDefault();jog(command[0],command[1],event.shiftKey);}
 });
-window.addEventListener("beforeunload", () => { stopArucoPolling(); $("#headCamera").removeAttribute("src"); socket?.close(); });
+window.addEventListener("beforeunload", () => { stopArucoPolling(); stopSimulationPolling(); $("#headCamera").removeAttribute("src"); $("#simulationView").removeAttribute("src"); socket?.close(); });
 initialize().catch(error => toast(error.message));

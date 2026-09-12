@@ -49,3 +49,13 @@ class MarkerOffset:
             raise ValueError("ArUco offset values must be finite")
         if np.linalg.norm(self.xyz_m) > 0.5:
             raise ValueError("ArUco offset must be within 0.5 m of the marker")
+
+
+@dataclass(frozen=True)
+class RobotVisualizationState:
+    """Read-only state copied for visualization consumers."""
+
+    body_q: np.ndarray
+    hands: dict[str, dict[str, float] | None]
+    planned_arm_q: np.ndarray | None
+    aruco_target: dict[str, object] | None

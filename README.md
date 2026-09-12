@@ -27,7 +27,7 @@ To reuse the existing `g1-cartesian` environment instead, install only the missi
 
 ```bash
 conda activate g1-cartesian
-conda install -c conda-forge fastapi uvicorn pyyaml pyzmq 'opencv>=4.10,<5'
+conda install -c conda-forge fastapi uvicorn pyyaml pyzmq 'opencv>=4.10,<5' 'mujoco>=3.3,<4'
 
 export XR_TELEOPERATE_ROOT=/path/to/xr_teleoperate
 export ROBOT_NETWORK_INTERFACE=enP2p1s0
@@ -73,6 +73,13 @@ neutral, the camera identity/profile is wrong, metric pose is unavailable, the
 selected marker is absent or older than 0.5 seconds, or reprojection error is
 over 2 pixels. Keep the rack clear and validate the configured transform with
 a slow, supported-arm test before approaching hardware.
+
+The browser also shows a read-only MuJoCo debug view beside the camera. It
+mirrors measured body and Dex3 joints, renders fresh metric markers in the G1
+pelvis frame, and overlays the last resolved marker and wrist coordinates. A
+cyan ghost shows the final planned arm configuration when IK succeeds; a
+rejected target remains visible without a ghost so reachability and frame
+errors can be diagnosed. This view never steps physics or sends robot commands.
 
 ### PC2 camera service
 
@@ -128,6 +135,7 @@ The package is split by responsibility:
 - `camera.py` independently bridges camera frames to browser MJPEG streams.
 - `aruco.py` detects markers and estimates optional internal-camera poses.
 - `aruco_targeting.py` validates metric observations and composes marker-relative wrist targets.
+- `simulation.py` renders the measured robot, planned arm ghost, markers, and target frames.
 - `web.py` and `static/` implement the local API and interface.
 
 Run the hardware-free suite from the activated Conda environment with:

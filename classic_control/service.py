@@ -20,7 +20,13 @@ from .arm import (
 from .aruco_targeting import ArucoTargeting
 from .grasps import JOINT_NAMES, GraspStore, validate_hand
 from .hardware import RobotBackend
-from .models import ArmSide, ElbowBias, MarkerOffset, PoseTarget
+from .models import (
+    ArmSide,
+    ElbowBias,
+    MarkerOffset,
+    PoseTarget,
+    RobotVisualizationState,
+)
 
 NORMAL_SPEED_RAD_S = 0.08
 
@@ -49,6 +55,7 @@ class ControlService:
         self._right_target: np.ndarray | None = None
         self._hand_targets: dict[str, dict[str, float] | None] = {"left": None, "right": None}
         self._last_aruco_target: dict[str, object] | None = None
+        self._planned_arm_q: np.ndarray | None = None
 
     def start(self) -> None:
         self.backend.connect()
@@ -169,6 +176,8 @@ class ControlService:
             raise ValueError("jog delta is invalid or too large")
         with self._command_lock:
             self._ensure_acquired(owner)
+            with self._lock:
+                self._planned_arm_q = None
             self._cancel_motion(wait=True)
             state = self.backend.state()
             with self._planner_lock:
@@ -189,6 +198,8 @@ class ControlService:
         target.validate()
         with self._command_lock:
             self._ensure_acquired(owner)
+            with self._lock:
+                self._planned_arm_q = None
             self._cancel_motion(wait=True)
             state = self.backend.state()
             with self._planner_lock:
@@ -243,6 +254,9 @@ class ControlService:
         self.command_pose(owner, target)
 
     def _run_arm_plan(self, owner: str, label: str, plan) -> None:
+        with self._lock:
+            self._planned_arm_q = np.asarray(plan.waypoints[-1].q, dtype=float).copy()
+
         def runner(cancel: threading.Event) -> None:
             period = plan.duration_s / len(plan.waypoints)
             deadline = time.monotonic()
@@ -277,6 +291,8 @@ class ControlService:
             trajectory = joint_trajectory(current_arm, NORMAL_ARM_Q, duration)
             with self._planner_lock:
                 normal_left, normal_right = self.planner.wrist_poses(NORMAL_ARM_Q)
+            with self._lock:
+                self._planned_arm_q = NORMAL_ARM_Q.copy()
 
             def runner(cancel: threading.Event) -> None:
                 period = duration / len(trajectory)
@@ -362,6 +378,7 @@ class ControlService:
                 self._left_target = self._right_target = None
                 self._hand_targets = {"left": None, "right": None}
                 self._last_aruco_target = None
+                self._planned_arm_q = None
 
     @staticmethod
     def _pose_json(transform: np.ndarray) -> dict[str, list[float]]:
@@ -407,3 +424,18 @@ class ControlService:
                 "hands": None if state is None else state.hands,
                 "aruco_target": self._last_aruco_target,
             }
+
+    def visualization_snapshot(self) -> RobotVisualizationState:
+        """Copy state for the read-only MuJoCo debug view."""
+        state = self.backend.state()
+        with self._lock:
+            hands = {
+                side: None if values is None else values.copy()
+                for side, values in state.hands.items()
+            }
+            target = None if self._last_aruco_target is None else {
+                key: value.copy() if isinstance(value, dict) else value
+                for key, value in self._last_aruco_target.items()
+            }
+            planned = None if self._planned_arm_q is None else self._planned_arm_q.copy()
+        return RobotVisualizationState(state.body_q.copy(), hands, planned, target)

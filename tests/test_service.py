@@ -91,6 +91,7 @@ class ServiceTest(unittest.TestCase):
         self.service.command_jog("owner", "left", "translation", 0, 0.01, 0.1, "auto")
         wait_idle(self.service)
         self.assertTrue(self.backend.acquired)
+        self.assertEqual(self.service.visualization_snapshot().planned_arm_q.shape, (14,))
 
     def test_stop_motion_holds_without_releasing_control(self):
         self.service.command_jog("owner", "left", "translation", 0, 0.01, 0.1, "auto")

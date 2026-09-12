@@ -78,6 +78,14 @@ class StubAruco:
         return iter([b"--frame\r\nContent-Type: image/jpeg\r\n\r\nARUCO\r\n"])
 
 
+class StubSimulation:
+    def __init__(self): self.closed = False; self.retries = 0
+    def status(self): return {"available": True, "state": "live", "error": None}
+    def stream(self): return iter([b"--frame\r\nContent-Type: image/jpeg\r\n\r\nSIM\r\n"])
+    def retry(self): self.retries += 1; return self.status()
+    def close(self): self.closed = True
+
+
 class WebTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -88,8 +96,10 @@ class WebTest(unittest.TestCase):
         self.control = StubControl(GraspStore(path))
         self.camera = StubCamera()
         self.aruco = StubAruco()
+        self.simulation = StubSimulation()
         self.client_context = TestClient(
-            create_app(self.control, self.camera, self.aruco), base_url="http://127.0.0.1"
+            create_app(self.control, self.camera, self.aruco, self.simulation),
+            base_url="http://127.0.0.1",
         )
         self.client = self.client_context.__enter__()
 
@@ -117,6 +127,14 @@ class WebTest(unittest.TestCase):
         self.assertIn("multipart/x-mixed-replace", response.headers["content-type"])
         self.assertIn(b"JPEG", response.content)
         self.assertEqual(self.client.get("/api/cameras/missing.mjpg").status_code, 404)
+
+    def test_simulation_status_stream_and_retry(self):
+        self.assertTrue(self.client.get("/api/simulation/status").json()["available"])
+        response = self.client.get("/api/simulation.mjpg")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"SIM", response.content)
+        self.assertEqual(self.client.post("/api/simulation/retry").status_code, 200)
+        self.assertEqual(self.simulation.retries, 1)
 
     def test_aruco_config_detections_and_stream(self):
         config = self.client.get("/api/aruco/config").json()

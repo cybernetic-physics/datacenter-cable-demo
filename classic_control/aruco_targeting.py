@@ -23,6 +23,8 @@ class MarkerObservationSource(Protocol):
         self, marker_id: int
     ) -> tuple[dict[str, object], dict[str, object] | None, float | None]: ...
 
+    def latest(self) -> dict[str, object]: ...
+
 
 @dataclass(frozen=True)
 class TargetingConfig:
@@ -44,6 +46,15 @@ class ResolvedArucoTarget:
     base_from_marker: np.ndarray
     marker_from_wrist: np.ndarray
     base_from_wrist: np.ndarray
+
+
+@dataclass(frozen=True)
+class VisualizedMarker:
+    marker_id: int
+    size_m: float
+    detection_age_s: float
+    reprojection_error_px: float
+    base_from_marker: np.ndarray
 
 
 def pose_transform(xyz: tuple[float, float, float], rpy_deg: tuple[float, float, float]) -> np.ndarray:
@@ -223,6 +234,41 @@ class ArucoTargeting:
             ),
             base_from_wrist=base_wrist,
         )
+
+    def visualized_markers(self) -> tuple[VisualizedMarker, ...]:
+        """Return only marker poses that pass the motion-quality gates."""
+        result = self.observations.latest()
+        age_value = result.get("age_s")
+        marker_length_mm = result.get("marker_length_mm")
+        try:
+            age_s = float(age_value)
+            size_m = float(marker_length_mm) / 1000.0
+        except (TypeError, ValueError):
+            return ()
+        if (
+            not np.isfinite((age_s, size_m)).all()
+            or age_s > self.config.max_detection_age_s
+            or size_m <= 0
+            or not result.get("calibration_valid")
+            or str(result.get("camera_serial_number")) != self.config.camera_serial_number
+        ):
+            return ()
+        markers: list[VisualizedMarker] = []
+        for item in result.get("markers", []):
+            try:
+                error_px = float(item["reprojection_error_px"])
+                if not np.isfinite(error_px) or error_px > self.config.max_reprojection_error_px:
+                    continue
+                camera_marker = camera_from_marker(item["rvec"], item["tvec_m"])
+                base_marker = self.config.base_from_camera @ camera_marker
+                markers.append(
+                    VisualizedMarker(
+                        int(item["id"]), size_m, age_s, error_px, base_marker
+                    )
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+        return tuple(markers)
 
     @staticmethod
     def resolution_json(resolved: ResolvedArucoTarget) -> dict[str, object]:

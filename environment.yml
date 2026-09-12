@@ -10,6 +10,7 @@ dependencies:
   - casadi=3.6
   - cyclonedds=0.10
   - meshcat-python=0.3.2
+  - mujoco>=3.3,<4
   - fastapi>=0.110,<1
   - uvicorn>=0.27,<1
   - pyyaml>=6,<7

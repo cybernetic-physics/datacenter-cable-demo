@@ -37,9 +37,25 @@
           <button id="retryCamera">Reconnect camera</button>
         </div>
       </div>
-      <div class="camera-frame">
-        <img id="headCamera" alt="Live view from the G1 head camera">
-        <p id="cameraMessage" class="muted">Looking for the head camera…</p>
+      <div class="vision-grid">
+        <div class="vision-pane">
+          <h3>Selected camera</h3>
+          <div class="camera-frame">
+            <img id="headCamera" alt="Live view from the G1 head camera">
+            <p id="cameraMessage" class="muted">Looking for the head camera…</p>
+          </div>
+        </div>
+        <div class="vision-pane">
+          <div class="sim-heading">
+            <h3>MuJoCo debug view</h3>
+            <span id="simulationStatus" class="pill">Idle</span>
+            <button id="retrySimulation">Retry</button>
+          </div>
+          <div class="camera-frame">
+            <img id="simulationView" alt="MuJoCo view of the measured G1 and ArUco targets">
+            <p id="simulationMessage" class="muted">Starting MuJoCo…</p>
+          </div>
+        </div>
       </div>
       <div class="aruco-controls">
         <label class="toggle"><input id="arucoEnabled" type="checkbox">Detect ArUco on internal camera</label>

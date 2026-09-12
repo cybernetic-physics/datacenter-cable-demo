@@ -23,6 +23,7 @@ from .grasps import DEX3_LIMITS, JOINT_NAMES, Grasp, GraspStore
 from .hardware import UnitreeRobotBackend
 from .models import ArmSide, ElbowBias, MarkerOffset, PoseTarget
 from .service import ControlService
+from .simulation import MuJoCoDebugView
 
 STATIC = Path(__file__).resolve().parent / "static"
 
@@ -78,8 +79,7 @@ class ArucoPoseMessage(BaseModel):
     elbow: ElbowBias = ElbowBias.AUTO
 
 
-def _real_service(targeting: ArucoTargeting) -> ControlService:
-    root = xr_teleoperate_root()
+def _real_service(root: Path, targeting: ArucoTargeting) -> ControlService:
     return ControlService(
         UnitreeRobotBackend(root), ArmPlanner(root), GraspStore(grasp_file()), targeting
     )
@@ -89,17 +89,36 @@ def create_app(
     control: ControlService | None = None,
     camera: CameraHub | None = None,
     aruco: ArucoVision | None = None,
+    simulation: MuJoCoDebugView | None = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.camera = camera or CameraHub()
         app.state.aruco = aruco or ArucoVision(app.state.camera)
         app.state.aruco_targeting = ArucoTargeting(app.state.aruco)
-        app.state.control = control or _real_service(app.state.aruco_targeting)
+        if control is None:
+            root = xr_teleoperate_root()
+            app.state.control = _real_service(root, app.state.aruco_targeting)
+        else:
+            root = None
+            app.state.control = control
+        if simulation is None:
+            if root is None:
+                try:
+                    root = xr_teleoperate_root()
+                except RuntimeError:
+                    pass
+            model_path = None if root is None else root / "assets/g1/g1_body29_hand14.xml"
+            app.state.simulation = MuJoCoDebugView(
+                app.state.control, app.state.aruco_targeting, model_path
+            )
+        else:
+            app.state.simulation = simulation
         await asyncio.to_thread(app.state.control.start)
         try:
             yield
         finally:
+            await asyncio.to_thread(app.state.simulation.close)
             await asyncio.to_thread(app.state.camera.close)
             await asyncio.to_thread(app.state.control.close)
 
@@ -128,6 +147,26 @@ def create_app(
     @app.get("/api/cameras")
     async def camera_status():
         return await asyncio.to_thread(app.state.camera.status)
+
+    @app.get("/api/simulation/status")
+    async def simulation_status():
+        return await asyncio.to_thread(app.state.simulation.status)
+
+    @app.post("/api/simulation/retry")
+    async def retry_simulation():
+        return await asyncio.to_thread(app.state.simulation.retry)
+
+    @app.get("/api/simulation.mjpg")
+    def simulation_stream():
+        try:
+            stream = app.state.simulation.stream()
+        except RuntimeError as error:
+            raise HTTPException(503, str(error)) from error
+        return StreamingResponse(
+            stream,
+            media_type="multipart/x-mixed-replace; boundary=frame",
+            headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+        )
 
     @app.get("/api/cameras/{source_id}.mjpg")
     def camera_stream(source_id: str):

@@ -14,6 +14,10 @@ main { max-width:1280px; margin:auto; padding:24px; display:grid; gap:18px; }
 .camera-frame img { width:100%; height:100%; object-fit:contain; display:none; }
 .camera-frame img.visible { display:block; }
 .camera-frame p { position:absolute; margin:0; padding:18px; text-align:center; }
+.aruco-controls { display:flex; align-items:end; gap:10px; margin-top:14px; flex-wrap:wrap; }
+.aruco-controls .toggle { display:flex; align-items:center; gap:8px; padding:9px 0; }
+.aruco-controls .toggle input { width:auto; }
+.detection-readout { min-height:20px; margin:12px 0 0; white-space:pre-wrap; font:12px ui-monospace,SFMono-Regular,monospace; }
 button,input,select { font:inherit; color:var(--text); background:#0c1117; border:1px solid #34404e; border-radius:7px; padding:9px 11px; }
 button { cursor:pointer; } button:hover { border-color:#607086; } button:disabled { cursor:not-allowed; opacity:.42; }
 button.primary { color:#07120e; background:var(--accent); border-color:var(--accent); font-weight:750; }

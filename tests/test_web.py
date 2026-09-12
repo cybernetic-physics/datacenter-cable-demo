@@ -48,6 +48,34 @@ class StubCamera:
         return iter([b"--frame\r\nContent-Type: image/jpeg\r\n\r\nJPEG\r\n"])
 
 
+class StubAruco:
+    def __init__(self):
+        self.dictionary = "DICT_4X4_50"
+        self.marker_length_mm = None
+
+    def configuration(self):
+        return {
+            "dictionaries": ["DICT_4X4_50", "DICT_5X5_100"],
+            "dictionary": self.dictionary,
+            "marker_length_mm": self.marker_length_mm,
+            "active": False,
+            "calibration": {"valid": True, "expected": {}, "actual": {}, "error": None},
+        }
+
+    def configure(self, dictionary, marker_length_mm):
+        if dictionary not in self.configuration()["dictionaries"]:
+            raise ValueError("unsupported ArUco dictionary")
+        self.dictionary = dictionary
+        self.marker_length_mm = marker_length_mm
+        return self.configuration()
+
+    def latest(self):
+        return {"observed_at": None, "markers": []}
+
+    def annotated_stream(self):
+        return iter([b"--frame\r\nContent-Type: image/jpeg\r\n\r\nARUCO\r\n"])
+
+
 class WebTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -57,7 +85,10 @@ class WebTest(unittest.TestCase):
         }}))
         self.control = StubControl(GraspStore(path))
         self.camera = StubCamera()
-        self.client_context = TestClient(create_app(self.control, self.camera), base_url="http://127.0.0.1")
+        self.aruco = StubAruco()
+        self.client_context = TestClient(
+            create_app(self.control, self.camera, self.aruco), base_url="http://127.0.0.1"
+        )
         self.client = self.client_context.__enter__()
 
     def tearDown(self):
@@ -84,6 +115,25 @@ class WebTest(unittest.TestCase):
         self.assertIn("multipart/x-mixed-replace", response.headers["content-type"])
         self.assertIn(b"JPEG", response.content)
         self.assertEqual(self.client.get("/api/cameras/missing.mjpg").status_code, 404)
+
+    def test_aruco_config_detections_and_stream(self):
+        config = self.client.get("/api/aruco/config").json()
+        self.assertEqual(config["dictionary"], "DICT_4X4_50")
+        response = self.client.put(
+            "/api/aruco/config",
+            json={"dictionary": "DICT_5X5_100", "marker_length_mm": 42.0},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["marker_length_mm"], 42.0)
+        self.assertEqual(self.client.get("/api/aruco/detections").json()["markers"], [])
+        stream = self.client.get("/api/cameras/internal/aruco.mjpg")
+        self.assertEqual(stream.status_code, 200)
+        self.assertIn(b"ARUCO", stream.content)
+        invalid = self.client.put(
+            "/api/aruco/config",
+            json={"dictionary": "missing", "marker_length_mm": None},
+        )
+        self.assertEqual(invalid.status_code, 422)
 
     def test_websocket_streams_state_and_detaches(self):
         with self.client.websocket_connect(

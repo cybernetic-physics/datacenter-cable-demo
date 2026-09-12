@@ -22,6 +22,17 @@ class CameraBusy(RuntimeError):
     """Raised when another browser is already consuming a camera source."""
 
 
+def multipart_jpeg(jpeg: bytes) -> bytes:
+    """Wrap one JPEG for an HTTP multipart MJPEG response."""
+    return (
+        b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
+        + str(len(jpeg)).encode()
+        + b"\r\n\r\n"
+        + jpeg
+        + b"\r\n"
+    )
+
+
 class TeleimagerCamera:
     """Turn Teleimager's latest-value JPEG ZMQ stream into multipart MJPEG."""
 
@@ -59,6 +70,11 @@ class TeleimagerCamera:
         }
 
     def stream(self) -> Iterator[bytes]:
+        frames = self.jpeg_stream()
+        return self._multipart_stream(frames)
+
+    def jpeg_stream(self) -> Iterator[bytes]:
+        """Return validated JPEG frames for browser or vision consumers."""
         if not self._stream_lock.acquire(blocking=False):
             raise CameraBusy(f"{self.name} is already streaming")
         if not self.status()["available"]:
@@ -77,9 +93,9 @@ class TeleimagerCamera:
         with self._state_lock:
             self._streaming = True
             self._last_error = None
-        return self._read_stream(context, subscriber)
+        return self._read_jpegs(context, subscriber)
 
-    def _read_stream(self, context: zmq.Context, subscriber: zmq.Socket) -> Iterator[bytes]:
+    def _read_jpegs(self, context: zmq.Context, subscriber: zmq.Socket) -> Iterator[bytes]:
         last_frame = time.monotonic()
         try:
             while not self._stop_event.is_set():
@@ -94,19 +110,23 @@ class TeleimagerCamera:
                 if not (jpeg.startswith(b"\xff\xd8") and jpeg.endswith(b"\xff\xd9")):
                     continue
                 last_frame = time.monotonic()
-                yield (
-                    b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
-                    + str(len(jpeg)).encode()
-                    + b"\r\n\r\n"
-                    + jpeg
-                    + b"\r\n"
-                )
+                yield jpeg
         finally:
             subscriber.close(linger=0)
             context.term()
             with self._state_lock:
                 self._streaming = False
             self._stream_lock.release()
+
+    @staticmethod
+    def _multipart_stream(frames: Iterator[bytes]) -> Iterator[bytes]:
+        try:
+            for jpeg in frames:
+                yield multipart_jpeg(jpeg)
+        finally:
+            close = getattr(frames, "close", None)
+            if close is not None:
+                close()
 
     def close(self) -> None:
         self._stop_event.set()
@@ -230,6 +250,39 @@ class CameraHub:
         except KeyError as error:
             raise KeyError(f"unknown camera source: {source_id}") from error
         return source.stream()
+
+    def jpeg_stream(self, source_id: str) -> Iterator[bytes]:
+        try:
+            source = self.sources[source_id]
+        except KeyError as error:
+            raise KeyError(f"unknown camera source: {source_id}") from error
+        try:
+            return source.jpeg_stream()
+        except AttributeError as error:
+            raise CameraUnavailable(f"{source_id} does not expose JPEG frames") from error
+
+    def teleimager_config(self) -> dict[str, object]:
+        """Read the active PC2 camera profile from Teleimager's responder."""
+        source = self.sources.get("internal")
+        if not isinstance(source, TeleimagerCamera):
+            raise CameraUnavailable("the internal camera is not a Teleimager source")
+        context = zmq.Context()
+        requester = context.socket(zmq.REQ)
+        requester.setsockopt(zmq.LINGER, 0)
+        requester.setsockopt(zmq.RCVTIMEO, 1000)
+        requester.setsockopt(zmq.SNDTIMEO, 1000)
+        requester.connect(f"tcp://{source.host}:60000")
+        try:
+            requester.send(b"GET_DATA")
+            config = requester.recv_json()
+            if not isinstance(config, dict):
+                raise CameraUnavailable("Teleimager returned an invalid camera configuration")
+            return config
+        except zmq.ZMQError as error:
+            raise CameraUnavailable(f"Teleimager camera configuration failed: {error}") from error
+        finally:
+            requester.close(linger=0)
+            context.term()
 
     def close(self) -> None:
         for source in self.sources.values():

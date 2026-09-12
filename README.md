@@ -27,7 +27,7 @@ To reuse the existing `g1-cartesian` environment instead, install only the missi
 
 ```bash
 conda activate g1-cartesian
-conda install -c conda-forge fastapi uvicorn pyyaml pyzmq
+conda install -c conda-forge fastapi uvicorn pyyaml pyzmq 'opencv>=4.10,<5'
 
 export XR_TELEOPERATE_ROOT=/path/to/xr_teleoperate
 export ROBOT_NETWORK_INTERFACE=enP2p1s0
@@ -45,6 +45,16 @@ robot-mounted feeds arrive as latest-value JPEG frames from Teleimager at
 `192.168.123.164`; set `TELEIMAGER_HOST` to override that address. The Thor
 fallback uses native JPEG through the system GStreamer installation; set
 `CLASSIC_CONTROL_CAMERA_DEVICE` to override its automatic AIRHUG discovery.
+
+The internal D435i view also has an optional ArUco overlay. Enable it in the
+Robot view, select the dictionary used to print the markers, and enter the
+physical marker edge length in millimetres if metric camera-frame poses are
+needed. With no marker size, the UI reports IDs and image corners only. Metric
+poses use the factory intrinsics tracked in
+[`config/camera-calibrations.yaml`](config/camera-calibrations.yaml) and are
+disabled if the active Teleimager serial or stream profile does not match.
+Reported coordinates follow OpenCV's camera convention: +X right, +Y down, and
++Z forward. They are not yet transformed into the G1 base frame.
 
 ### PC2 camera service
 
@@ -97,7 +107,8 @@ The package is split by responsibility:
 - `arm.py` contains hardware-independent transforms plus the checked Unitree IK wrapper.
 - `hardware.py` is the only owner of DDS command publishers.
 - `service.py` serializes commands and implements stop/hold, release, and fault behavior.
-- `camera.py` independently bridges the head camera to a browser MJPEG stream.
+- `camera.py` independently bridges camera frames to browser MJPEG streams.
+- `aruco.py` detects markers and estimates optional internal-camera poses.
 - `web.py` and `static/` implement the local API and interface.
 
 Run the hardware-free suite from the activated Conda environment with:

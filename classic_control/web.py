@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .arm import ArmPlanner
+from .aruco import ArucoVision
 from .camera import CameraBusy, CameraHub, CameraUnavailable
 from .config import grasp_file, xr_teleoperate_root
 from .grasps import DEX3_LIMITS, JOINT_NAMES, Grasp, GraspStore
@@ -58,16 +59,26 @@ class GraspMessage(BaseModel):
     duration_s: float = Field(default=0.5, ge=0.0, le=10.0)
 
 
+class ArucoConfigBody(BaseModel):
+    dictionary: str
+    marker_length_mm: float | None = Field(default=None, gt=0, le=1000)
+
+
 def _real_service() -> ControlService:
     root = xr_teleoperate_root()
     return ControlService(UnitreeRobotBackend(root), ArmPlanner(root), GraspStore(grasp_file()))
 
 
-def create_app(control: ControlService | None = None, camera: CameraHub | None = None) -> FastAPI:
+def create_app(
+    control: ControlService | None = None,
+    camera: CameraHub | None = None,
+    aruco: ArucoVision | None = None,
+) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.control = control or _real_service()
         app.state.camera = camera or CameraHub()
+        app.state.aruco = aruco or ArucoVision(app.state.camera)
         await asyncio.to_thread(app.state.control.start)
         try:
             yield
@@ -107,6 +118,37 @@ def create_app(control: ControlService | None = None, camera: CameraHub | None =
             stream = app.state.camera.stream(source_id)
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
+        except CameraBusy as error:
+            raise HTTPException(409, str(error)) from error
+        except CameraUnavailable as error:
+            raise HTTPException(503, str(error)) from error
+        return StreamingResponse(
+            stream,
+            media_type="multipart/x-mixed-replace; boundary=frame",
+            headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+        )
+
+    @app.get("/api/aruco/config")
+    async def aruco_config():
+        return await asyncio.to_thread(app.state.aruco.configuration)
+
+    @app.put("/api/aruco/config")
+    async def update_aruco_config(body: ArucoConfigBody):
+        try:
+            return await asyncio.to_thread(
+                app.state.aruco.configure, body.dictionary, body.marker_length_mm
+            )
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.get("/api/aruco/detections")
+    async def aruco_detections():
+        return await asyncio.to_thread(app.state.aruco.latest)
+
+    @app.get("/api/cameras/internal/aruco.mjpg")
+    def aruco_stream():
+        try:
+            stream = app.state.aruco.annotated_stream()
         except CameraBusy as error:
             raise HTTPException(409, str(error)) from error
         except CameraUnavailable as error:

@@ -1,0 +1,14 @@
+version: 1
+cameras:
+  internal:
+    model: Intel RealSense D435i
+    serial_number: "254322072098"
+    width: 640
+    height: 480
+    fps: 30
+    camera_matrix:
+      - [607.0221557617188, 0.0, 320.4804992675781]
+      - [0.0, 606.5546875, 252.83303833007812]
+      - [0.0, 0.0, 1.0]
+    distortion_model: inverse_brown_conrady
+    distortion_coefficients: [0.0, 0.0, 0.0, 0.0, 0.0]

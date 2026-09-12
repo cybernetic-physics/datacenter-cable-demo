@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .arm import ArmPlanner
-from .aruco import ArucoVision
+from .aruco import ArucoVision, draw_projected_gates
 from .aruco_targeting import ArucoTargeting
 from .camera import CameraBusy, CameraHub, CameraUnavailable
 from .config import grasp_file, xr_teleoperate_root
@@ -235,8 +235,17 @@ def create_app(
 
     @app.get("/api/cameras/internal/aruco.mjpg")
     def aruco_stream():
+        def draw_gate_overlay(image, camera_matrix, distortion_coefficients):
+            app.state.aruco_targeting.visualized_markers()
+            gates = app.state.aruco_targeting.projected_gates(
+                camera_matrix, distortion_coefficients
+            )
+            draw_projected_gates(
+                image, gates, app.state.control.selected_gate_index()
+            )
+
         try:
-            stream = app.state.aruco.annotated_stream()
+            stream = app.state.aruco.annotated_stream(draw_gate_overlay)
         except CameraBusy as error:
             raise HTTPException(409, str(error)) from error
         except CameraUnavailable as error:

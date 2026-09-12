@@ -33,6 +33,7 @@ class StubControl:
     def release_control(self, owner): pass
     def command_aruco(self, *args): self.aruco_commands.append(args)
     def command_gate(self, *args): self.gate_commands.append(args)
+    def selected_gate_index(self): return None
     def telemetry(self):
         return {"connected": True, "owner": self.owner is not None,
                 "acquired": False, "active_command": None, "fault": None,
@@ -56,6 +57,7 @@ class StubAruco:
     def __init__(self):
         self.dictionary = "DICT_4X4_50"
         self.marker_length_mm = None
+        self.overlay_received = False
 
     def configuration(self):
         return {
@@ -76,7 +78,8 @@ class StubAruco:
     def latest(self):
         return {"observed_at": None, "markers": []}
 
-    def annotated_stream(self):
+    def annotated_stream(self, frame_overlay=None):
+        self.overlay_received = frame_overlay is not None
         return iter([b"--frame\r\nContent-Type: image/jpeg\r\n\r\nARUCO\r\n"])
 
 
@@ -161,6 +164,7 @@ class WebTest(unittest.TestCase):
         stream = self.client.get("/api/cameras/internal/aruco.mjpg")
         self.assertEqual(stream.status_code, 200)
         self.assertIn(b"ARUCO", stream.content)
+        self.assertTrue(self.aruco.overlay_received)
         invalid = self.client.put(
             "/api/aruco/config",
             json={"dictionary": "missing", "marker_length_mm": None},

@@ -6,7 +6,8 @@ import cv2
 import numpy as np
 import yaml
 
-from classic_control.aruco import ArucoVision
+from classic_control.aruco import ArucoVision, draw_projected_gates
+from classic_control.aruco_targeting import ProjectedGate
 
 CALIBRATION = {
     "version": 1,
@@ -63,7 +64,14 @@ class ArucoVisionTest(unittest.TestCase):
     def test_detects_marker_and_estimates_pose(self):
         vision = ArucoVision(StubCamera(), self.calibration_path)
         vision.configure("DICT_4X4_50", 50.0)
-        chunks = list(vision.annotated_stream())
+        overlays = []
+        chunks = list(
+            vision.annotated_stream(
+                lambda image, matrix, distortion: overlays.append(
+                    (image.shape, matrix.shape, distortion.shape)
+                )
+            )
+        )
         result = vision.latest()
 
         self.assertEqual(len(chunks), 1)
@@ -73,6 +81,19 @@ class ArucoVisionTest(unittest.TestCase):
         self.assertGreater(result["markers"][0]["tvec_m"][2], 0)
         self.assertAlmostEqual(result["markers"][0]["tvec_m"][2], 0.188, delta=0.01)
         self.assertTrue(result["calibration_valid"])
+        self.assertEqual(overlays, [((480, 640, 3), (3, 3), (5,))])
+
+    def test_draws_gate_outlines_centers_and_selected_highlight(self):
+        image = np.zeros((100, 120, 3), dtype=np.uint8)
+        gates = (
+            ProjectedGate(0, np.asarray(((10, 20), (30, 20), (30, 40), (10, 40))), np.asarray((20, 30))),
+            ProjectedGate(1, np.asarray(((60, 20), (80, 20), (80, 40), (60, 40))), np.asarray((70, 30))),
+        )
+
+        draw_projected_gates(image, gates, selected_gate=1)
+
+        np.testing.assert_array_equal(image[30, 20], (70, 220, 90))
+        np.testing.assert_array_equal(image[30, 70], (255, 55, 220))
 
     def test_profile_mismatch_disables_metric_pose(self):
         vision = ArucoVision(StubCamera(profile_matches=False), self.calibration_path)

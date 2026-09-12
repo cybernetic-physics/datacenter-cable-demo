@@ -26,6 +26,14 @@ GATE_ZERO_LEFT_EDGE_OFFSET_M = 0.028
 GATE_ROW_BOTTOM_OFFSET_M = 0.020
 
 
+def gate_local_corners() -> np.ndarray:
+    half = GATE_SIZE_M / 2
+    return np.asarray(
+        ((-half, half, 0), (half, half, 0), (half, -half, 0), (-half, -half, 0)),
+        dtype=float,
+    )
+
+
 class MarkerObservationSource(Protocol):
     def marker_observation(
         self, marker_id: int
@@ -88,6 +96,13 @@ class VisualizedGate:
 
 
 @dataclass(frozen=True)
+class ProjectedGate:
+    gate_index: int
+    corners_px: np.ndarray
+    center_px: np.ndarray
+
+
+@dataclass(frozen=True)
 class SavedMarker:
     marker_id: int
     size_m: float
@@ -131,6 +146,10 @@ class EthernetGateGrid:
             0.0,
         )
         return transform
+
+    def marker_gate_corners(self, gate_index: int) -> np.ndarray:
+        center = self.marker_from_gate(gate_index)[:3, 3]
+        return center + gate_local_corners()
 
 
 def pose_transform(xyz: tuple[float, float, float], rpy_deg: tuple[float, float, float]) -> np.ndarray:
@@ -443,6 +462,51 @@ class ArucoTargeting:
             )
             for gate_index in range(GATE_COUNT)
         )
+
+    def projected_gates(
+        self, camera_matrix: object, distortion_coefficients: object
+    ) -> tuple[ProjectedGate, ...]:
+        """Project the saved rack gate geometry into the internal RGB image."""
+        saved = self._saved_marker(self.config.right_rack_marker_id)
+        if saved is None:
+            return ()
+        matrix = np.asarray(camera_matrix, dtype=np.float64)
+        distortion = np.asarray(distortion_coefficients, dtype=np.float64)
+        if (
+            matrix.shape != (3, 3)
+            or distortion.ndim not in (1, 2)
+            or not np.all(np.isfinite(matrix))
+            or not np.all(np.isfinite(distortion))
+        ):
+            raise ValueError("camera projection calibration is invalid")
+        grid = EthernetGateGrid(saved.size_m)
+        rotation = saved.camera_from_marker[:3, :3]
+        translation = saved.camera_from_marker[:3, 3]
+        projected_gates: list[ProjectedGate] = []
+        for gate_index in range(GATE_COUNT):
+            marker_points = np.vstack(
+                (
+                    grid.marker_gate_corners(gate_index),
+                    grid.marker_from_gate(gate_index)[:3, 3],
+                )
+            )
+            camera_points = (rotation @ marker_points.T).T + translation
+            if np.any(camera_points[:, 2] <= 1e-6):
+                continue
+            pixels, _ = cv2.projectPoints(
+                camera_points,
+                np.zeros(3),
+                np.zeros(3),
+                matrix,
+                distortion,
+            )
+            pixels = pixels.reshape(-1, 2)
+            if not np.all(np.isfinite(pixels)) or np.max(np.abs(pixels)) > 1e6:
+                continue
+            projected_gates.append(
+                ProjectedGate(gate_index, pixels[:4].copy(), pixels[4].copy())
+            )
+        return tuple(projected_gates)
 
     @staticmethod
     def resolution_json(resolved: ResolvedArucoTarget) -> dict[str, object]:

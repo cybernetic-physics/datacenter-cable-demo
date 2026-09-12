@@ -83,15 +83,17 @@ The bottom Ethernet row is derived from the saved right-rack marker selected by
 from `0` at the right through `23` at the left. **Move to gate** uses the same
 arm, duration, elbow, marker-relative wrist orientation, and offset controls as
 **Move to ArUco**, then routes the resolved gate-center target through the same
-absolute IK path. MuJoCo shows all 24 centers and highlights the most recently
-targeted gate.
+absolute IK path. The ArUco-annotated RGB feed and MuJoCo both show the true
+15 mm gate outlines and their centers. Available gates are green; the most
+recently targeted gate is larger, magenta, and labeled in RGB. The ordinary
+internal-camera feed remains raw.
 
 The browser also shows a read-only MuJoCo debug view beside the camera. It
 mirrors measured body and Dex3 joints, renders session-saved metric markers in
-the G1 pelvis frame, and overlays the last resolved marker and wrist coordinates. A
-cyan ghost shows the final planned arm configuration when IK succeeds; a
-rejected target remains visible without a ghost so reachability and frame
-errors can be diagnosed. Drag the view to orbit, use the mouse wheel to zoom,
+the G1 pelvis frame, and overlays the last resolved marker and wrist
+coordinates. A cyan ghost shows the final planned arm configuration when IK
+succeeds; a rejected target remains visible without a ghost so reachability
+and frame errors can be diagnosed. Drag the view to orbit, use the mouse wheel to zoom,
 or press **Reset view** to restore the default camera. All shadow casting and
 reflections are disabled for a stable debug image. This view never steps
 physics or sends robot commands.

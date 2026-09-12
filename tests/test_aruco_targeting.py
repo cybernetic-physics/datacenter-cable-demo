@@ -161,6 +161,41 @@ class ArucoValidationTest(unittest.TestCase):
         )
         self.assertEqual(len(resolver.visualized_gates()), 24)
 
+    def test_projects_saved_gate_footprints_into_rgb(self):
+        resolver = self.resolver()
+        resolver.resolve_gate(0)
+        matrix = np.asarray(((600, 0, 320), (0, 600, 240), (0, 0, 1)), dtype=float)
+
+        gates = resolver.projected_gates(matrix, np.zeros(5))
+
+        self.assertEqual(len(gates), 24)
+        np.testing.assert_allclose(gates[0].center_px, (541.0, 745.0), atol=1e-6)
+        np.testing.assert_allclose(
+            gates[0].corners_px,
+            ((526, 760), (556, 760), (556, 730), (526, 730)),
+            atol=1e-6,
+        )
+
+    def test_rgb_projection_omits_gates_behind_camera(self):
+        marker = {
+            **self.marker,
+            "rvec": [-np.pi / 2, 0, 0],
+            "tvec_m": [0, 0, 0.001],
+        }
+        resolver = self.resolver(marker=marker)
+        resolver.resolve_gate(0)
+
+        gates = resolver.projected_gates(np.eye(3), np.zeros(5))
+
+        self.assertEqual(gates, ())
+
+    def test_rgb_projection_rejects_invalid_calibration(self):
+        resolver = self.resolver()
+        resolver.resolve_gate(0)
+
+        with self.assertRaisesRegex(ValueError, "calibration"):
+            resolver.projected_gates(np.full((3, 3), np.nan), np.zeros(5))
+
     def test_visualization_latches_first_fresh_usable_marker_pose(self):
         result = {
             **self.result,

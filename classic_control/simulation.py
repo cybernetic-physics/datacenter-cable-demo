@@ -16,6 +16,7 @@ from .aruco_targeting import (
     ArucoTargeting,
     VisualizedGate,
     VisualizedMarker,
+    gate_local_corners,
     pose_transform,
 )
 from .camera import multipart_jpeg
@@ -453,6 +454,18 @@ class MuJoCoDebugView:
         selected: bool,
     ) -> None:
         pose = world_from_base(world_base_pose, gate.base_from_gate)
+        color = (1.0, 0.15, 0.65, 1.0) if selected else (0.2, 1.0, 0.4, 0.9)
+        local_corners = gate_local_corners()
+        corners = (pose[:3, :3] @ local_corners.T).T + pose[:3, 3]
+        for index in range(4):
+            self._add_connector(
+                mujoco,
+                scene,
+                corners[index],
+                corners[(index + 1) % 4],
+                color,
+                4.0 if selected else 2.0,
+            )
         geom = self._append_geom(
             mujoco,
             scene,
@@ -460,7 +473,7 @@ class MuJoCoDebugView:
             (0.007 if selected else 0.003,) * 3,
             pose[:3, 3],
             pose[:3, :3],
-            (1.0, 0.15, 0.65, 1.0) if selected else (0.2, 1.0, 0.4, 0.9),
+            color,
         )
         if geom is not None:
             geom.emission = 0.35

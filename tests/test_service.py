@@ -170,6 +170,7 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual(targeting.gate, 23)
         self.assertEqual(captured[0][1].xyz, (0.15, -0.25, 0.45))
         self.assertEqual(self.service.telemetry()["aruco_target"]["gate_index"], 23)
+        self.assertEqual(self.service.selected_gate_index(), 23)
 
 
 if __name__ == "__main__":

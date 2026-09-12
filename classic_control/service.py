@@ -467,6 +467,15 @@ class ControlService:
                 "aruco_target": self._last_aruco_target,
             }
 
+    def selected_gate_index(self) -> int | None:
+        """Return the latest commanded gate without reading hardware state."""
+        with self._lock:
+            target = self._last_aruco_target
+            if target is None or target.get("target_kind") != "gate":
+                return None
+            gate_index = target.get("gate_index")
+            return int(gate_index) if isinstance(gate_index, int) else None
+
     def visualization_snapshot(self) -> RobotVisualizationState:
         """Copy state for the read-only MuJoCo debug view."""
         state = self.backend.state()

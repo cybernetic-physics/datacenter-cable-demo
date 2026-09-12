@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -12,6 +12,7 @@ import cv2
 import numpy as np
 import yaml
 
+from .aruco_targeting import ProjectedGate
 from .camera import CameraHub, CameraUnavailable, multipart_jpeg
 
 DICTIONARY_NAMES = tuple(
@@ -19,6 +20,48 @@ DICTIONARY_NAMES = tuple(
     + ["DICT_ARUCO_ORIGINAL"]
 )
 DEFAULT_CALIBRATION = Path(__file__).resolve().parent.parent / "config" / "camera-calibrations.yaml"
+FrameOverlay = Callable[[np.ndarray, np.ndarray, np.ndarray], None]
+
+
+def draw_projected_gates(
+    image: np.ndarray,
+    gates: Iterable[ProjectedGate],
+    selected_gate: int | None,
+) -> None:
+    """Draw projected Ethernet gate footprints without detecting anything."""
+    height, width = image.shape[:2]
+    for gate in gates:
+        corners = np.rint(gate.corners_px).astype(np.int32)
+        center = tuple(np.rint(gate.center_px).astype(np.int32))
+        if (
+            np.max(corners[:, 0]) < 0
+            or np.min(corners[:, 0]) >= width
+            or np.max(corners[:, 1]) < 0
+            or np.min(corners[:, 1]) >= height
+        ):
+            continue
+        selected = gate.gate_index == selected_gate
+        color = (255, 55, 220) if selected else (70, 220, 90)
+        cv2.polylines(
+            image,
+            [corners.reshape(-1, 1, 2)],
+            True,
+            color,
+            3 if selected else 1,
+            cv2.LINE_AA,
+        )
+        cv2.circle(image, center, 4 if selected else 2, color, -1, cv2.LINE_AA)
+        if selected:
+            cv2.putText(
+                image,
+                f"gate {gate.gate_index}",
+                (center[0] + 6, center[1] - 6),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                color,
+                2,
+                cv2.LINE_AA,
+            )
 
 
 class ArucoVision:
@@ -102,14 +145,18 @@ class ArucoVision:
         age_s = None if observed is None else max(0.0, time.monotonic() - observed)
         return result, marker, age_s
 
-    def annotated_stream(self) -> Iterator[bytes]:
+    def annotated_stream(self, frame_overlay: FrameOverlay | None = None) -> Iterator[bytes]:
         frames = self.camera.jpeg_stream("internal")
         with self._lock:
             dictionary_name = self._dictionary
             marker_length_mm = self._marker_length_mm
         calibration_status = self._calibration_status()
         return self._process_stream(
-            frames, dictionary_name, marker_length_mm, calibration_status["valid"]
+            frames,
+            dictionary_name,
+            marker_length_mm,
+            calibration_status["valid"],
+            frame_overlay,
         )
 
     def _process_stream(
@@ -118,6 +165,7 @@ class ArucoVision:
         dictionary_name: str,
         marker_length_mm: float | None,
         calibration_valid: bool,
+        frame_overlay: FrameOverlay | None = None,
     ) -> Iterator[bytes]:
         dictionary_id = getattr(cv2.aruco, dictionary_name)
         detector = cv2.aruco.ArucoDetector(
@@ -155,6 +203,15 @@ class ArucoVision:
                 with self._lock:
                     self._latest = result
                     self._latest_monotonic = time.monotonic()
+                if frame_overlay is not None:
+                    try:
+                        frame_overlay(
+                            image,
+                            self.calibration["camera_matrix"],
+                            self.calibration["distortion_coefficients"],
+                        )
+                    except (RuntimeError, ValueError, cv2.error):
+                        pass
                 ok, annotated = cv2.imencode(
                     ".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 85]
                 )

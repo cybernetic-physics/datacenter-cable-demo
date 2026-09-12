@@ -79,10 +79,11 @@ class StubAruco:
 
 
 class StubSimulation:
-    def __init__(self): self.closed = False; self.retries = 0
+    def __init__(self): self.closed = False; self.retries = 0; self.view_updates = []
     def status(self): return {"available": True, "state": "live", "error": None}
     def stream(self): return iter([b"--frame\r\nContent-Type: image/jpeg\r\n\r\nSIM\r\n"])
     def retry(self): self.retries += 1; return self.status()
+    def update_view(self, *args): self.view_updates.append(args); return {"azimuth_deg": 140}
     def close(self): self.closed = True
 
 
@@ -135,6 +136,12 @@ class WebTest(unittest.TestCase):
         self.assertIn(b"SIM", response.content)
         self.assertEqual(self.client.post("/api/simulation/retry").status_code, 200)
         self.assertEqual(self.simulation.retries, 1)
+        view = self.client.post(
+            "/api/simulation/view",
+            json={"azimuth_delta_deg": 5, "elevation_delta_deg": -2, "zoom_factor": 1.1},
+        )
+        self.assertEqual(view.json()["azimuth_deg"], 140)
+        self.assertEqual(self.simulation.view_updates[-1], (5.0, -2.0, 1.1, False))
 
     def test_aruco_config_detections_and_stream(self):
         config = self.client.get("/api/aruco/config").json()

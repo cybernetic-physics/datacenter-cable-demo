@@ -49,12 +49,14 @@
           <div class="sim-heading">
             <h3>MuJoCo debug view</h3>
             <span id="simulationStatus" class="pill">Idle</span>
+            <button id="resetSimulationView">Reset view</button>
             <button id="retrySimulation">Retry</button>
           </div>
-          <div class="camera-frame">
-            <img id="simulationView" alt="MuJoCo view of the measured G1 and ArUco targets">
+          <div id="simulationFrame" class="camera-frame simulation-frame">
+            <img id="simulationView" draggable="false" alt="MuJoCo view of the measured G1 and ArUco targets">
             <p id="simulationMessage" class="muted">Starting MuJoCo…</p>
           </div>
+          <p class="sim-help muted">Drag to orbit · scroll to zoom</p>
         </div>
       </div>
       <div class="aruco-controls">

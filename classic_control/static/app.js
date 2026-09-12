@@ -6,6 +6,8 @@ let uiConfig = null;
 let grasps = {};
 let arucoTimer = null;
 let simulationTimer = null;
+let simulationViewTimer = null;
+const simulationViewPending = {x:0, y:0};
 const handTouched = {left:false, right:false};
 
 function toast(message) {
@@ -59,6 +61,50 @@ async function startSimulation() {
     } catch (_) { setSimulationStatus("Unavailable","bad"); }
   };
   update(); simulationTimer=setInterval(update,750);
+}
+
+async function postSimulationView(body) {
+  const response=await fetch("/api/simulation/view",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
+  if (!response.ok) throw new Error("Could not update MuJoCo view");
+}
+
+function queueSimulationOrbit(deltaX, deltaY) {
+  simulationViewPending.x+=deltaX; simulationViewPending.y+=deltaY;
+  if (simulationViewTimer) return;
+  simulationViewTimer=setTimeout(async()=>{
+    simulationViewTimer=null;
+    const x=simulationViewPending.x, y=simulationViewPending.y;
+    simulationViewPending.x=0; simulationViewPending.y=0;
+    try { await postSimulationView({azimuth_delta_deg:-x*0.3,elevation_delta_deg:y*0.25}); }
+    catch (error) { toast(error.message); }
+  },40);
+}
+
+function enableSimulationCameraControls() {
+  const frame=$("#simulationFrame");
+  let drag=null;
+  frame.onpointerdown=event=>{
+    if (event.button!==0) return;
+    drag={id:event.pointerId,x:event.clientX,y:event.clientY};
+    frame.setPointerCapture(event.pointerId); frame.classList.add("dragging");
+    event.preventDefault();
+  };
+  frame.onpointermove=event=>{
+    if (!drag || drag.id!==event.pointerId) return;
+    queueSimulationOrbit(event.clientX-drag.x,event.clientY-drag.y);
+    drag.x=event.clientX; drag.y=event.clientY; event.preventDefault();
+  };
+  const finish=event=>{
+    if (!drag || drag.id!==event.pointerId) return;
+    if (frame.hasPointerCapture(event.pointerId)) frame.releasePointerCapture(event.pointerId);
+    drag=null; frame.classList.remove("dragging");
+  };
+  frame.onpointerup=finish; frame.onpointercancel=finish;
+  frame.onwheel=event=>{
+    event.preventDefault();
+    postSimulationView({zoom_factor:Math.max(0.5,Math.min(2,Math.exp(event.deltaY*0.0015)))})
+      .catch(error=>toast(error.message));
+  };
 }
 
 async function loadArucoConfig() {
@@ -207,6 +253,7 @@ async function initialize() {
   await loadArucoConfig();
   startCamera();
   startSimulation();
+  enableSimulationCameraControls();
   $("#jogMode").onchange = event => {
     const rotation=event.target.value==="rotation", input=$("#jogStep");
     $("#jogStepLabel").textContent=rotation?"Step (°)":"Step (m)";
@@ -241,6 +288,7 @@ async function initialize() {
   $("#refreshGrasps").onclick = refreshGrasps;
   $("#retryCamera").onclick = startCamera;
   $("#retrySimulation").onclick = async () => { await fetch("/api/simulation/retry",{method:"POST"}); startSimulation(); };
+  $("#resetSimulationView").onclick = () => postSimulationView({reset:true}).catch(error=>toast(error.message));
   $("#cameraSelect").onchange = () => { if ($("#cameraSelect").value !== "internal") { $("#arucoEnabled").checked=false; stopArucoPolling(); setArucoStatus("Off"); } startCamera(); };
   $("#arucoEnabled").onchange = async event => {
     try {

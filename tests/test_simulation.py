@@ -23,6 +23,19 @@ class EmptyProvider:
 
 
 class SimulationMathTest(unittest.TestCase):
+    def test_camera_view_orbits_zooms_clamps_and_resets(self):
+        view = MuJoCoDebugView(EmptyProvider(), EmptyTargeting(), None)
+
+        changed = view.update_view(30.0, 200.0, 2.0)
+
+        self.assertEqual(changed["azimuth_deg"], 165.0)
+        self.assertEqual(changed["elevation_deg"], 89.0)
+        self.assertEqual(changed["distance_m"], 2.9)
+        reset = view.update_view(reset=True)
+        self.assertEqual(reset["azimuth_deg"], 135.0)
+        self.assertEqual(reset["elevation_deg"], -20.0)
+        self.assertEqual(reset["distance_m"], 1.45)
+
     def test_maps_body_and_dex3_joints_by_name(self):
         body = np.arange(35, dtype=float) / 10
         hands = {

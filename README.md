@@ -79,7 +79,10 @@ mirrors measured body and Dex3 joints, renders fresh metric markers in the G1
 pelvis frame, and overlays the last resolved marker and wrist coordinates. A
 cyan ghost shows the final planned arm configuration when IK succeeds; a
 rejected target remains visible without a ghost so reachability and frame
-errors can be diagnosed. This view never steps physics or sends robot commands.
+errors can be diagnosed. Drag the view to orbit, use the mouse wheel to zoom,
+or press **Reset view** to restore the default camera. Shadows and reflections
+are disabled for a stable debug image. This view never steps physics or sends
+robot commands.
 
 ### PC2 camera service
 

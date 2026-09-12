@@ -62,6 +62,9 @@ HAND_JOINT_NAMES = {
 }
 
 GHOST_BODY_PARTS = ("shoulder", "elbow", "wrist", "hand")
+DEFAULT_CAMERA_AZIMUTH = 135.0
+DEFAULT_CAMERA_ELEVATION = -20.0
+DEFAULT_CAMERA_DISTANCE = 1.45
 
 
 class VisualizationStateProvider(Protocol):
@@ -122,6 +125,9 @@ class MuJoCoDebugView:
         self._latest_jpeg: bytes | None = None
         self._sequence = 0
         self._subscribers = 0
+        self._camera_azimuth = DEFAULT_CAMERA_AZIMUTH
+        self._camera_elevation = DEFAULT_CAMERA_ELEVATION
+        self._camera_distance = DEFAULT_CAMERA_DISTANCE
 
     def status(self) -> dict[str, object]:
         with self._condition:
@@ -132,7 +138,45 @@ class MuJoCoDebugView:
                 "fps": self.fps,
                 "error": self._error,
                 "subscribers": self._subscribers,
+                "view": self._camera_view(),
             }
+
+    def update_view(
+        self,
+        azimuth_delta_deg: float = 0.0,
+        elevation_delta_deg: float = 0.0,
+        zoom_factor: float = 1.0,
+        reset: bool = False,
+    ) -> dict[str, float]:
+        """Adjust the shared debug camera without changing simulated or robot state."""
+        values = np.asarray(
+            (azimuth_delta_deg, elevation_delta_deg, zoom_factor), dtype=float
+        )
+        if not np.all(np.isfinite(values)) or zoom_factor <= 0:
+            raise ValueError("simulation view adjustment is invalid")
+        with self._condition:
+            if reset:
+                self._camera_azimuth = DEFAULT_CAMERA_AZIMUTH
+                self._camera_elevation = DEFAULT_CAMERA_ELEVATION
+                self._camera_distance = DEFAULT_CAMERA_DISTANCE
+            else:
+                self._camera_azimuth = (
+                    self._camera_azimuth + azimuth_delta_deg + 180.0
+                ) % 360.0 - 180.0
+                self._camera_elevation = float(
+                    np.clip(self._camera_elevation + elevation_delta_deg, -89.0, 89.0)
+                )
+                self._camera_distance = float(
+                    np.clip(self._camera_distance * zoom_factor, 0.35, 4.0)
+                )
+            return self._camera_view()
+
+    def _camera_view(self) -> dict[str, float]:
+        return {
+            "azimuth_deg": self._camera_azimuth,
+            "elevation_deg": self._camera_elevation,
+            "distance_m": self._camera_distance,
+        }
 
     def stream(self) -> Iterator[bytes]:
         self._ensure_started()
@@ -243,16 +287,19 @@ class MuJoCoDebugView:
                         target_values = dict(zip(BODY_JOINT_NAMES[15:29], planned))
                         self._set_joint_values(target_data, qpos_addresses, target_values)
                         mujoco.mj_forward(model, target_data)
+                markers = self.targeting.visualized_markers()
+                world_base = self._world_base(mujoco, model, measured_data)
+                aruco_target = None if snapshot is None else snapshot.aruco_target
+                self._apply_camera_view(camera)
                 renderer.update_scene(measured_data, camera=camera, scene_option=option)
                 if target_ready:
                     self._add_ghost_geoms(mujoco, renderer.scene, model, target_data, ghost_geoms)
-                markers = self.targeting.visualized_markers()
-                world_base = self._world_base(mujoco, model, measured_data)
                 for marker in markers:
                     self._add_marker(mujoco, renderer.scene, world_base, marker)
-                aruco_target = None if snapshot is None else snapshot.aruco_target
                 if aruco_target is not None:
                     self._add_target(mujoco, renderer.scene, world_base, aruco_target)
+                renderer.scene.flags[mujoco.mjtRndFlag.mjRND_SHADOW] = 0
+                renderer.scene.flags[mujoco.mjtRndFlag.mjRND_REFLECTION] = 0
                 rgb = renderer.render()
                 jpeg = self._encode_frame(rgb, markers, aruco_target, state_error, target_ready)
                 with self._condition:
@@ -270,15 +317,18 @@ class MuJoCoDebugView:
             if renderer is not None:
                 renderer.close()
 
-    @staticmethod
-    def _camera(mujoco):
+    def _camera(self, mujoco):
         camera = mujoco.MjvCamera()
         camera.type = mujoco.mjtCamera.mjCAMERA_FREE
         camera.lookat[:] = (0.15, 0.0, 0.95)
-        camera.distance = 1.45
-        camera.azimuth = 135.0
-        camera.elevation = -20.0
+        self._apply_camera_view(camera)
         return camera
+
+    def _apply_camera_view(self, camera) -> None:
+        with self._condition:
+            camera.azimuth = self._camera_azimuth
+            camera.elevation = self._camera_elevation
+            camera.distance = self._camera_distance
 
     @staticmethod
     def _qpos_addresses(mujoco, model) -> dict[str, int]:

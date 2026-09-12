@@ -79,6 +79,13 @@ class ArucoPoseMessage(BaseModel):
     elbow: ElbowBias = ElbowBias.AUTO
 
 
+class SimulationViewBody(BaseModel):
+    azimuth_delta_deg: float = Field(default=0.0, ge=-180.0, le=180.0)
+    elevation_delta_deg: float = Field(default=0.0, ge=-180.0, le=180.0)
+    zoom_factor: float = Field(default=1.0, ge=0.5, le=2.0)
+    reset: bool = False
+
+
 def _real_service(root: Path, targeting: ArucoTargeting) -> ControlService:
     return ControlService(
         UnitreeRobotBackend(root), ArmPlanner(root), GraspStore(grasp_file()), targeting
@@ -155,6 +162,19 @@ def create_app(
     @app.post("/api/simulation/retry")
     async def retry_simulation():
         return await asyncio.to_thread(app.state.simulation.retry)
+
+    @app.post("/api/simulation/view")
+    async def update_simulation_view(body: SimulationViewBody):
+        try:
+            return await asyncio.to_thread(
+                app.state.simulation.update_view,
+                body.azimuth_delta_deg,
+                body.elevation_delta_deg,
+                body.zoom_factor,
+                body.reset,
+            )
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
 
     @app.get("/api/simulation.mjpg")
     def simulation_stream():

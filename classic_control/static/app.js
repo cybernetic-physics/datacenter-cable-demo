@@ -14,6 +14,7 @@ function toast(message) {
 
 function send(message) {
   if (!socket || socket.readyState !== WebSocket.OPEN) return toast("Control connection is not open");
+  const result=$("#commandResult"); result.textContent="Sending…"; result.className="muted";
   socket.send(JSON.stringify(message));
 }
 
@@ -139,7 +140,8 @@ function connect() {
   socket.onmessage = event => {
     const message = JSON.parse(event.data);
     if (message.type === "telemetry") renderState(message.state);
-    if (message.type === "error") toast(message.message);
+    if (message.type === "accepted") { $("#commandResult").textContent="Accepted"; $("#commandResult").className="muted"; }
+    if (message.type === "error") { $("#commandResult").textContent=`Rejected: ${message.message}`; $("#commandResult").className="command-error"; toast(message.message); }
   };
   socket.onclose = event => { updateMotionButtons(); toast(event.code === 4001 ? "Another browser owns control" : "Control connection closed"); };
 }

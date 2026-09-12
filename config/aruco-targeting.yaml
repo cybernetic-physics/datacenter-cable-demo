@@ -18,7 +18,9 @@ aruco_targeting:
   # the camera side of the marker plane. Orientation is marker-relative too.
   default_offset:
     xyz_m: [0.0, 0.0, 0.08]
-    rpy_deg: [0.0, 0.0, 0.0]
+    # Aim wrist +X (the G1 end-effector/tool axis) into the marker plane while
+    # keeping wrist +Z aligned with marker +Y (up for an upright marker).
+    rpy_deg: [0.0, 90.0, 90.0]
 
   max_detection_age_s: 0.5
   max_reprojection_error_px: 2.0

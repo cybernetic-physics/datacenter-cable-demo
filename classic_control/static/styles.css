@@ -29,6 +29,7 @@ button.danger-outline { color:var(--danger); border-color:#793d3e; }
 kbd { font-size:11px; opacity:.65; }
 .fault { margin:14px auto 0; max-width:1280px; padding:12px 18px; color:#ffd5d4; background:#4d1c1c; border:1px solid #913b3b; border-radius:8px; }
 .hidden { display:none !important; } .muted { color:var(--muted); }
+.command-error { color:var(--danger); }
 .segmented { border:1px solid var(--line); border-radius:8px; overflow:hidden; gap:0; } .segmented label { padding:8px 12px; } .segmented input { accent-color:var(--accent); }
 .pose-cards { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:24px; }
 .pose-cards article { padding:14px; border:1px solid var(--line); border-radius:9px; background:#0e1319; }

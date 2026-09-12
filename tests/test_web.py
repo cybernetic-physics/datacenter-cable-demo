@@ -122,6 +122,7 @@ class WebTest(unittest.TestCase):
         config = self.client.get("/api/aruco/config").json()
         self.assertEqual(config["dictionary"], "DICT_4X4_50")
         self.assertEqual(config["targeting"]["default_offset"]["xyz_m"], [0.0, 0.0, 0.08])
+        self.assertEqual(config["targeting"]["default_offset"]["rpy_deg"], [0.0, 90.0, 90.0])
         response = self.client.put(
             "/api/aruco/config",
             json={"dictionary": "DICT_5X5_100", "marker_length_mm": 42.0},

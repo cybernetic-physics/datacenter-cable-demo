@@ -177,14 +177,10 @@ class ControlService:
             end_left, end_right = start_left.copy(), start_right.copy()
             selected = end_left if moving_side == ArmSide.LEFT else end_right
             selected[:] = apply_nudge(selected, mode, axis, delta)
-            try:
-                with self._planner_lock:
-                    plan = self.planner.plan(state.body_q[15:29], state.body_dq[15:29],
-                                             start_left, start_right, end_left, end_right,
-                                             duration_s, moving_side, bias)
-            except Exception as error:
-                self._set_fault(error)
-                raise
+            with self._planner_lock:
+                plan = self.planner.plan(state.body_q[15:29], state.body_dq[15:29],
+                                         start_left, start_right, end_left, end_right,
+                                         duration_s, moving_side, bias)
             if not self._authority_still_valid(owner):
                 return
             self._run_arm_plan(owner, f"{side}-{mode}-jog", plan)
@@ -202,14 +198,10 @@ class ControlService:
             selected = end_left if target.side == ArmSide.LEFT else end_right
             selected[:3, 3] = target.xyz
             selected[:3, :3] = rotation_from_rpy_degrees(*target.rpy_deg)
-            try:
-                with self._planner_lock:
-                    plan = self.planner.plan(state.body_q[15:29], state.body_dq[15:29],
-                                             start_left, start_right, end_left, end_right,
-                                             target.duration_s, target.side, target.elbow)
-            except Exception as error:
-                self._set_fault(error)
-                raise
+            with self._planner_lock:
+                plan = self.planner.plan(state.body_q[15:29], state.body_dq[15:29],
+                                         start_left, start_right, end_left, end_right,
+                                         target.duration_s, target.side, target.elbow)
             if not self._authority_still_valid(owner):
                 return
             self._run_arm_plan(owner, f"{target.side.value}-absolute", plan)

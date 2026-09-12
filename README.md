@@ -59,7 +59,9 @@ With metric detection enabled, **Move to ArUco** resolves the selected marker
 into the neutral-waist G1 pelvis frame and sends the resulting wrist pose
 through the same checked absolute IK path as a manually entered target. The
 default marker-relative offset is 8 cm along the marker normal toward the
-camera; XYZ and RPY offsets are editable in the UI. The resolved pelvis-frame
+camera. Its default rotation points the G1 wrist/tool +X axis toward the marker
+plane while keeping wrist +Z aligned with marker-up; XYZ and RPY offsets remain
+editable in the UI. The resolved pelvis-frame
 marker pose and final wrist target remain visible below the controls.
 
 The camera extrinsic, default offset, freshness/reprojection limits, and
@@ -108,7 +110,7 @@ robonia-pc2-sensor-agent.service` on PC2.
 - Hand sliders stage values only. Pressing Apply performs a bounded, interpolated move.
 - There are no confirmation phrases or confirmation dialogs.
 
-Only one browser may own the control WebSocket. IK failures, invalid feedback, limit violations, and command publisher failures are shown as faults and block motion until control is released.
+Only one browser may own the control WebSocket. Unreachable IK requests are rejected without latching the controller, so the target can be corrected and retried. Invalid feedback, limit violations during motion, and command publisher failures are shown as faults and block motion until control is released.
 
 ## Grasps
 

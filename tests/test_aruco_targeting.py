@@ -22,7 +22,7 @@ def targeting_payload() -> dict[str, object]:
                 "source": "test",
                 "matrix": np.eye(4).tolist(),
             },
-            "default_offset": {"xyz_m": [0, 0, 0.08], "rpy_deg": [0, 0, 0]},
+            "default_offset": {"xyz_m": [0, 0, 0.08], "rpy_deg": [0, 90, 90]},
             "max_detection_age_s": 0.5,
             "max_reprojection_error_px": 2.0,
             "max_waist_error_rad": 0.035,
@@ -59,6 +59,11 @@ class ArucoTransformTest(unittest.TestCase):
         expected = base_marker @ pose_transform(offset.xyz_m, offset.rpy_deg)
         np.testing.assert_allclose(base_wrist, expected, atol=1e-12)
         self.assertAlmostEqual(np.linalg.norm(base_wrist[:3, 3] - base_marker[:3, 3]), 0.08)
+
+    def test_default_tool_orientation_points_wrist_x_into_marker(self):
+        marker_wrist = pose_transform((0, 0, 0.08), (0, 90, 90))
+        np.testing.assert_allclose(marker_wrist[:3, 0], (0, 0, -1), atol=1e-12)
+        np.testing.assert_allclose(marker_wrist[:3, 2], (0, 1, 0), atol=1e-12)
 
 
 class ArucoValidationTest(unittest.TestCase):

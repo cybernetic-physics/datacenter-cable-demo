@@ -7,7 +7,7 @@ import numpy as np
 from classic_control.arm import NORMAL_ARM_Q, ArmWaypoint
 from classic_control.aruco_targeting import ResolvedArucoTarget
 from classic_control.hardware import RobotState
-from classic_control.models import MarkerOffset
+from classic_control.models import ArmSide, ElbowBias, MarkerOffset, PoseTarget
 from classic_control.service import ControlService
 
 OPEN = {
@@ -95,6 +95,18 @@ class ServiceTest(unittest.TestCase):
     def test_stop_motion_holds_without_releasing_control(self):
         self.service.command_jog("owner", "left", "translation", 0, 0.01, 0.1, "auto")
         self.service.stop_motion("owner")
+        self.assertTrue(self.backend.acquired)
+
+    def test_ik_rejection_does_not_latch_control_fault(self):
+        def reject(*_args):
+            raise RuntimeError("IK target is unreachable")
+
+        self.service.planner.plan = reject
+        target = PoseTarget(ArmSide.RIGHT, (0.3, -0.2, 0.1), (0, 0, 0), 1.0, ElbowBias.AUTO)
+        with self.assertRaisesRegex(RuntimeError, "unreachable"):
+            self.service.command_pose("owner", target)
+
+        self.assertIsNone(self.service.telemetry()["fault"])
         self.assertTrue(self.backend.acquired)
 
     def test_normal_sets_waist_and_arms(self):

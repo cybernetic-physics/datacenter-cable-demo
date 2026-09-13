@@ -48,10 +48,10 @@ class NormalPoseFkTest(unittest.TestCase):
     def setUpClass(cls):
         cls.planner = ArmPlanner(Path(os.environ["XR_TELEOPERATE_ROOT"]))
 
-    def test_shoulders_elbows_and_wrist_roll_keep_baseline_values(self):
+    def test_shoulders_and_elbows_keep_baseline_values(self):
         np.testing.assert_allclose(
-            NORMAL_ARM_Q[[0, 1, 2, 3, 4, 7, 8, 9, 10, 11]],
-            (0.0, 0.19, 0.0, 0.0, 0.0, 0.0, -0.19, 0.0, 0.0, 0.0),
+            NORMAL_ARM_Q[[0, 1, 2, 3, 7, 8, 9, 10]],
+            (0.0, 0.19, 0.0, 0.0, 0.0, -0.19, 0.0, 0.0),
         )
 
     def test_fingers_point_up_and_palms_face_forward(self):
@@ -64,7 +64,7 @@ class NormalPoseFkTest(unittest.TestCase):
         ):
             rotation = transform[:3, :3]
             finger_axis = rotation @ HAND_FINGER_AXIS_LOCAL
-            palm_normal = rotation @ HAND_PALM_NORMAL_LOCAL
+            palm_normal = rotation @ HAND_PALM_NORMAL_LOCAL[side]
             finger_error = np.arccos(np.clip(finger_axis @ robot_up, -1.0, 1.0))
             palm_error = np.arccos(
                 np.clip(palm_normal @ robot_forward, -1.0, 1.0)

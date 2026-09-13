@@ -22,13 +22,16 @@ FILTER_SETTLE_WAYPOINTS = 4
 ELBOW_OFFSET_RAD = 0.08
 ELBOW_FINITE_DIFFERENCE_RAD = 0.01
 NORMAL_ARM_Q = np.array(
-    [0.0, 0.19, 0.0, 0.0, 0.0, -1.570832840527, 0.190059999745,
-     0.0, -0.19, 0.0, 0.0, 0.0, -1.570832840527, -0.190059999745],
+    [0.0, 0.19, 0.0, 0.0, 1.380736316267, 0.000191590000, 1.570851275796,
+     0.0, -0.19, 0.0, 0.0, -1.380736316267, 0.000191590000, -1.570851275796],
     dtype=float,
 )
 NORMAL_WAIST_Q = np.zeros(3, dtype=float)
 HAND_FINGER_AXIS_LOCAL = np.array((1.0, 0.0, 0.0))
-HAND_PALM_NORMAL_LOCAL = np.array((0.0, 0.0, -1.0))
+HAND_PALM_NORMAL_LOCAL = {
+    "left": np.array((0.0, -1.0, 0.0)),
+    "right": np.array((0.0, 1.0, 0.0)),
+}
 
 
 @dataclass(frozen=True)
@@ -197,13 +200,14 @@ class ArmPlanner:
             rotation = transform[:3, :3]
             wrist = NORMAL_ARM_Q[start + 4 : start + 7]
             finger_axis = rotation @ HAND_FINGER_AXIS_LOCAL
-            palm_normal = rotation @ HAND_PALM_NORMAL_LOCAL
+            palm_normal = rotation @ HAND_PALM_NORMAL_LOCAL[side]
+            palm_axis_name = "-Y" if side == "left" else "+Y"
             message = (
                 f"Normal pose {side} wrist [roll pitch yaw] rad = "
                 f"{np.array2string(wrist, precision=6, suppress_small=True)}; "
                 f"FK finger(+X) = "
                 f"{np.array2string(finger_axis, precision=6, suppress_small=True)}; "
-                f"palm_normal(-Z) = "
+                f"palm_normal({palm_axis_name}) = "
                 f"{np.array2string(palm_normal, precision=6, suppress_small=True)}"
             )
             if LOGGER.isEnabledFor(logging.INFO):

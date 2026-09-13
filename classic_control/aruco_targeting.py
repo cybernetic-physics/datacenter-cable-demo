@@ -22,8 +22,6 @@ GATE_COUNT = 24
 GATE_SIZE_M = 0.015
 GATE_GAP_M = 0.004
 GATE_PITCH_M = GATE_SIZE_M + GATE_GAP_M
-GATE_ZERO_LEFT_EDGE_OFFSET_M = 0.028
-GATE_ROW_BOTTOM_OFFSET_M = 0.020
 
 
 def gate_local_corners() -> np.ndarray:
@@ -115,7 +113,7 @@ class SavedMarker:
 
 @dataclass(frozen=True)
 class EthernetGateGrid:
-    """Bottom-row Ethernet gate centers in an upright ArUco marker frame."""
+    """Rightward Ethernet gate centers in the ArUco marker frame."""
 
     marker_size_m: float
 
@@ -135,14 +133,11 @@ class EthernetGateGrid:
     def marker_from_gate(self, gate_index: int) -> np.ndarray:
         index = self.validate_gate_index(gate_index)
         transform = np.eye(4)
+        # ArucoVision's solvePnP object points use +Y toward the marker's
+        # visual top, so top-edge alignment uses +marker_half - gate_half.
         transform[:3, 3] = (
-            -self.marker_size_m / 2
-            + GATE_ZERO_LEFT_EDGE_OFFSET_M
-            + GATE_SIZE_M / 2
-            - GATE_PITCH_M * index,
-            self.marker_size_m / 2
-            + GATE_ROW_BOTTOM_OFFSET_M
-            + GATE_SIZE_M / 2,
+            self.marker_size_m / 2 + GATE_SIZE_M / 2 + GATE_PITCH_M * index,
+            self.marker_size_m / 2 - GATE_SIZE_M / 2,
             0.0,
         )
         return transform

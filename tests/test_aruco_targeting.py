@@ -19,7 +19,7 @@ def targeting_payload() -> dict[str, object]:
         "version": 1,
         "aruco_targeting": {
             "camera_serial_number": "test-camera",
-            "right_rack_marker_id": 3,
+            "right_rack_marker_id": 1,
             "base_from_internal_camera": {
                 "source": "test",
                 "matrix": np.eye(4).tolist(),
@@ -44,28 +44,47 @@ class StubObservations:
 
 
 class ArucoTransformTest(unittest.TestCase):
-    def test_gate_zero_uses_marker_edges_and_gate_center(self):
+    def test_gate_zero_left_edge_touches_marker_right_edge(self):
+        marker_size = 0.05
+        grid = EthernetGateGrid(marker_size)
+        corners = grid.marker_gate_corners(0)
+
+        self.assertAlmostEqual(np.min(corners[:, 0]), marker_size / 2)
+
+    def test_gate_zero_top_edge_aligns_with_marker_top_edge(self):
+        marker_size = 0.05
+        grid = EthernetGateGrid(marker_size)
+        corners = grid.marker_gate_corners(0)
+
+        self.assertAlmostEqual(np.max(corners[:, 1]), marker_size / 2)
+
+    def test_gate_zero_center_and_orientation(self):
         pose = EthernetGateGrid(0.05).marker_from_gate(0)
 
-        np.testing.assert_allclose(pose[:3, 3], (0.0105, 0.0525, 0.0))
+        np.testing.assert_allclose(pose[:3, 3], (0.0325, 0.0175, 0.0))
         np.testing.assert_allclose(pose[:3, :3], np.eye(3))
 
-    def test_gate_pitch_and_gate_23(self):
+    def test_gate_center_to_center_pitch_is_19_mm(self):
         grid = EthernetGateGrid(0.05)
         gate_0 = grid.marker_from_gate(0)
         gate_1 = grid.marker_from_gate(1)
+
+        self.assertAlmostEqual(gate_1[0, 3] - gate_0[0, 3], 0.019)
+        self.assertAlmostEqual(gate_1[1, 3], gate_0[1, 3])
+
+    def test_gate_23_position(self):
+        grid = EthernetGateGrid(0.05)
         gate_23 = grid.marker_from_gate(23)
 
-        self.assertAlmostEqual(gate_0[0, 3] - gate_1[0, 3], 0.019)
-        self.assertAlmostEqual(gate_23[0, 3], 0.0105 - 23 * 0.019)
-        self.assertAlmostEqual(gate_23[1, 3], 0.0525)
+        self.assertAlmostEqual(gate_23[0, 3], 0.0325 + 23 * 0.019)
+        self.assertAlmostEqual(gate_23[1, 3], 0.0175)
 
     def test_gate_grid_uses_detected_marker_size(self):
         small = EthernetGateGrid(0.05).marker_from_gate(0)
         large = EthernetGateGrid(0.10).marker_from_gate(0)
 
         np.testing.assert_allclose(
-            large[:3, 3] - small[:3, 3], (-0.025, 0.025, 0.0)
+            large[:3, 3] - small[:3, 3], (0.025, 0.025, 0.0)
         )
 
     def test_gate_grid_rejects_invalid_indices(self):
@@ -113,7 +132,7 @@ class ArucoValidationTest(unittest.TestCase):
             "marker_length_mm": 50.0,
         }
         self.marker = {
-            "id": 3,
+            "id": 1,
             "rvec": [0, 0, 0],
             "tvec_m": [0.1, 0.2, 0.3],
             "reprojection_error_px": 0.5,
@@ -128,20 +147,20 @@ class ArucoValidationTest(unittest.TestCase):
         return ArucoTargeting(source, self.config_path)
 
     def test_resolves_valid_metric_detection(self):
-        resolved = self.resolver().resolve(3)
+        resolved = self.resolver().resolve(1)
         np.testing.assert_allclose(resolved.base_from_marker[:3, 3], (0.1, 0.2, 0.3))
         np.testing.assert_allclose(resolved.base_from_wrist[:3, 3], (0.1, 0.2, 0.38))
 
     def test_resolve_reuses_first_valid_pose_for_the_session(self):
         resolver = self.resolver()
-        first = resolver.resolve(3)
+        first = resolver.resolve(1)
         resolver.observations.value = (
             {**self.result, "observed_at": None},
             {**self.marker, "tvec_m": [9, 9, 9]},
             None,
         )
 
-        second = resolver.resolve(3)
+        second = resolver.resolve(1)
 
         np.testing.assert_allclose(second.base_from_marker, first.base_from_marker)
 
@@ -152,7 +171,7 @@ class ArucoValidationTest(unittest.TestCase):
 
         np.testing.assert_allclose(
             resolved.base_from_gate[:3, 3],
-            (0.1 + 0.0105 - 23 * 0.019, 0.2 + 0.0525, 0.3),
+            (0.1 + 0.0325 + 23 * 0.019, 0.2 + 0.0175, 0.3),
         )
         np.testing.assert_allclose(
             resolved.base_from_wrist,
@@ -169,10 +188,10 @@ class ArucoValidationTest(unittest.TestCase):
         gates = resolver.projected_gates(matrix, np.zeros(5))
 
         self.assertEqual(len(gates), 24)
-        np.testing.assert_allclose(gates[0].center_px, (541.0, 745.0), atol=1e-6)
+        np.testing.assert_allclose(gates[0].center_px, (585.0, 675.0), atol=1e-6)
         np.testing.assert_allclose(
             gates[0].corners_px,
-            ((526, 760), (556, 760), (556, 730), (526, 730)),
+            ((570, 690), (600, 690), (600, 660), (570, 660)),
             atol=1e-6,
         )
 
@@ -207,7 +226,7 @@ class ArucoValidationTest(unittest.TestCase):
 
         markers = resolver.visualized_markers()
 
-        self.assertEqual([marker.marker_id for marker in markers], [3])
+        self.assertEqual([marker.marker_id for marker in markers], [1])
         self.assertEqual(markers[0].size_m, 0.05)
         np.testing.assert_allclose(markers[0].base_from_marker[:3, 3], (0.1, 0.2, 0.3))
         resolver.observations.value[0]["age_s"] = 0.6
@@ -216,7 +235,7 @@ class ArucoValidationTest(unittest.TestCase):
             "tvec_m": [0.8, 0.9, 1.0],
         }
         saved = resolver.visualized_markers()
-        self.assertEqual([marker.marker_id for marker in saved], [3])
+        self.assertEqual([marker.marker_id for marker in saved], [1])
         np.testing.assert_allclose(saved[0].base_from_marker[:3, 3], (0.1, 0.2, 0.3))
 
     def test_rejects_missing_stale_invalid_and_high_error_detection(self):

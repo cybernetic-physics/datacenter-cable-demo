@@ -78,9 +78,11 @@ cleared by restarting the application. Keep the rack clear and validate the
 configured transform with a slow, supported-arm test before approaching
 hardware.
 
-The bottom Ethernet row is derived from the saved right-rack marker selected by
-`right_rack_marker_id` in the same targeting configuration. Gates are numbered
-from `0` at the right through `23` at the left. **Move to gate** uses the same
+The bottom Ethernet row is derived from session-saved ArUco 1 (selected by
+`right_rack_marker_id` in the same targeting configuration). Gate 0 starts
+immediately to the marker's right, with its left edge touching the marker's
+right edge and its top edge aligned to the marker's top edge. Gates 1 through
+23 continue rightward at a 19 mm pitch. **Move to gate** uses the same
 arm, duration, elbow, marker-relative wrist orientation, and offset controls as
 **Move to ArUco**, then routes the resolved gate-center target through the same
 absolute IK path. The ArUco-annotated RGB feed and MuJoCo both show the true

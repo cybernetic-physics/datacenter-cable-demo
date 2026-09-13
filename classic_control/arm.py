@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from collections.abc import Sequence
@@ -12,6 +13,7 @@ import numpy as np
 
 from .models import ArmSide, ElbowBias
 
+LOGGER = logging.getLogger(__name__)
 WAYPOINT_HZ = 50.0
 MAX_JOINT_STEP_RAD = 0.20
 MAX_POSITION_ERROR_M = 0.02
@@ -20,11 +22,13 @@ FILTER_SETTLE_WAYPOINTS = 4
 ELBOW_OFFSET_RAD = 0.08
 ELBOW_FINITE_DIFFERENCE_RAD = 0.01
 NORMAL_ARM_Q = np.array(
-    [0.0, 0.19, 0.0, 0.0, 0.0, 0.0, 0.0,
-     0.0, -0.19, 0.0, 0.0, 0.0, 0.0, 0.0],
+    [0.0, 0.19, 0.0, 0.0, 0.0, -1.570832840527, 0.190059999745,
+     0.0, -0.19, 0.0, 0.0, 0.0, -1.570832840527, -0.190059999745],
     dtype=float,
 )
 NORMAL_WAIST_Q = np.zeros(3, dtype=float)
+HAND_FINGER_AXIS_LOCAL = np.array((1.0, 0.0, 0.0))
+HAND_PALM_NORMAL_LOCAL = np.array((0.0, 0.0, -1.0))
 
 
 @dataclass(frozen=True)
@@ -185,6 +189,27 @@ class ArmPlanner:
         model = self.ik.reduced_robot.model
         if np.any(NORMAL_ARM_Q < model.lowerPositionLimit) or np.any(NORMAL_ARM_Q > model.upperPositionLimit):
             raise RuntimeError("neutral arm target violates an IK joint limit")
+        self._log_normal_pose()
+
+    def _log_normal_pose(self) -> None:
+        poses = self.wrist_poses(NORMAL_ARM_Q)
+        for side, start, transform in zip(("left", "right"), (0, 7), poses):
+            rotation = transform[:3, :3]
+            wrist = NORMAL_ARM_Q[start + 4 : start + 7]
+            finger_axis = rotation @ HAND_FINGER_AXIS_LOCAL
+            palm_normal = rotation @ HAND_PALM_NORMAL_LOCAL
+            message = (
+                f"Normal pose {side} wrist [roll pitch yaw] rad = "
+                f"{np.array2string(wrist, precision=6, suppress_small=True)}; "
+                f"FK finger(+X) = "
+                f"{np.array2string(finger_axis, precision=6, suppress_small=True)}; "
+                f"palm_normal(-Z) = "
+                f"{np.array2string(palm_normal, precision=6, suppress_small=True)}"
+            )
+            if LOGGER.isEnabledFor(logging.INFO):
+                LOGGER.info("%s", message)
+            else:
+                print(message)
 
     def wrist_poses(self, q: Sequence[float]) -> tuple[np.ndarray, np.ndarray]:
         values = np.asarray(q, dtype=float)

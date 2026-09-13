@@ -1,6 +1,6 @@
 # Classic Control
 
-Local browser-based Cartesian control for a Unitree G1 with two Dex3 hands. It provides checked dual-arm IK, independent wrist targets, a fixed neutral waist action, hand tuning, and named grasp experiments without terminal teleoperation.
+Local browser-based Cartesian control for a Unitree G1 with two Dex3 hands. It provides checked dual-arm IK, independent wrist targets, a fixed neutral waist action, hand tuning, and named grasp experiments without terminal teleoperation. The **Normal pose** preserves its original shoulder/elbow posture while turning both wrists so the fingers point upward and the palms face robot-forward; it remains a direct joint-space interpolation and does not invoke IK.
 
 This project directly commands physical hardware. Support the robot, clear its workspace, keep its physical E-stop reachable, and ensure no other process publishes to `rt/lowcmd` or either Dex3 command topic.
 
